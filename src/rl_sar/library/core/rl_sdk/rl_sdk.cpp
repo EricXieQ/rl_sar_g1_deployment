@@ -194,6 +194,10 @@ void RL::InitObservations()
     this->obs.dof_vel.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
     this->obs.actions.clear();
     this->obs.actions.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
+    // Reset the action smoothing filter so it doesn't carry stale values                                             
+    // from a previous policy state.
+    this->last_action_smoothed.clear();                                                                               
+    this->last_action_smoothed.resize(this->params.Get<int>("num_of_dofs"), 0.0f);  
     this->ComputeObservation();
 }
 
@@ -255,7 +259,15 @@ void RL::InitRL(std::string robot_config_path)
 
 void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &output_dof_pos, std::vector<float> &output_dof_vel, std::vector<float> &output_dof_tau)
 {
-    std::vector<float> actions_scaled = actions * this->params.Get<std::vector<float>>("action_scale");
+    auto action_scale_vec = this->params.Get<std::vector<float>>("action_scale");
+    const float as_frac = this->action_scale_percent.load() / 100.0f;
+    for (auto& v : action_scale_vec) v *= as_frac;
+
+    auto rl_kp_vec = this->params.Get<std::vector<float>>("rl_kp");
+    const float kp_frac = this->rl_kp_percent.load() / 100.0f;
+    for (auto& v : rl_kp_vec) v *= kp_frac;
+
+    std::vector<float> actions_scaled = actions * action_scale_vec;
     std::vector<float> pos_actions_scaled = actions_scaled;
     std::vector<float> vel_actions_scaled(actions.size(), 0.0f);
     for (int i : this->params.Get<std::vector<int>>("wheel_indices"))
@@ -266,7 +278,7 @@ void RL::ComputeOutput(const std::vector<float> &actions, std::vector<float> &ou
     std::vector<float> all_actions_scaled = pos_actions_scaled + vel_actions_scaled;
     output_dof_pos = pos_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos");
     output_dof_vel = vel_actions_scaled;
-    output_dof_tau = this->params.Get<std::vector<float>>("rl_kp") * (all_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos") - this->obs.dof_pos) - this->params.Get<std::vector<float>>("rl_kd") * this->obs.dof_vel;
+    output_dof_tau = rl_kp_vec * (all_actions_scaled + this->params.Get<std::vector<float>>("default_dof_pos") - this->obs.dof_pos) - this->params.Get<std::vector<float>>("rl_kd") * this->obs.dof_vel;
     output_dof_tau = clamp(output_dof_tau, -this->params.Get<std::vector<float>>("torque_limits"), this->params.Get<std::vector<float>>("torque_limits"));
 }
 
@@ -375,11 +387,43 @@ static int kbhit()
 
 void RL::KeyboardInterface()
 {
+    auto scale = [this](const char* label, std::atomic<int>& field, int delta,
+                        const std::vector<float>& baseline) {
+        int pct = field.load() + delta;
+        if (pct < 0)   pct = 0;
+        if (pct > 100) pct = 100;
+        field.store(pct);
+        float frac = pct / 100.0f;
+        std::cout << std::endl << "[TUNE] " << label
+                  << "  scale = " << pct << "%";
+        if (baseline.empty())
+        {
+            std::cout << "  (YAML baseline not loaded)" << std::endl;
+            return;
+        }
+        float mn = baseline.front() * frac;
+        float mx = mn;
+        for (float b : baseline)
+        {
+            float r = b * frac;
+            if (r < mn) mn = r;
+            if (r > mx) mx = r;
+        }
+        std::cout << "  |  final per joint: ";
+        if (mn == mx) std::cout << mn;
+        else          std::cout << mn << " .. " << mx;
+        std::cout << std::endl;
+    };
+
     int c = kbhit();
     if (c > 0)
     {
         switch (c)
         {
+        case '+': case '=': scale("action_scale", this->action_scale_percent, +1, this->tuning_baseline_action_scale); return;
+        case '-': case '_': scale("action_scale", this->action_scale_percent, -1, this->tuning_baseline_action_scale); return;
+        case ']':           scale("rl_kp",        this->rl_kp_percent,        +1, this->tuning_baseline_rl_kp);        return;
+        case '[':           scale("rl_kp",        this->rl_kp_percent,        -1, this->tuning_baseline_rl_kp);        return;
         case '0': this->control.SetKeyboard(Input::Keyboard::Num0); break;
         case '1': this->control.SetKeyboard(Input::Keyboard::Num1); break;
         case '2': this->control.SetKeyboard(Input::Keyboard::Num2); break;
@@ -464,6 +508,33 @@ std::vector<T> ReadVectorFromYaml(const YAML::Node &node)
         values.push_back(val.as<T>());
     }
     return values;
+}
+
+void RL::LoadTuningBaseline(const std::string& file_path, const std::string& file_name)
+{
+    std::string config_path = std::string(POLICY_DIR) + "/" + file_path + "/" + file_name;
+    YAML::Node root;
+    try
+    {
+        root = YAML::LoadFile(config_path)[file_path];
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << LOGGER::WARNING << "[TUNE] failed to preload baseline from " << config_path
+                  << " (" << e.what() << ")" << std::endl;
+        return;
+    }
+    auto load_vec = [&](const char* key, std::vector<float>& dst) {
+        auto node = root[key];
+        if (!node || !node.IsSequence()) return;
+        dst.clear();
+        for (const auto& v : node) dst.push_back(v.as<float>());
+    };
+    load_vec("action_scale", this->tuning_baseline_action_scale);
+    load_vec("rl_kp",        this->tuning_baseline_rl_kp);
+    std::cout << LOGGER::INFO << "[TUNE] baseline loaded: action_scale(n="
+              << this->tuning_baseline_action_scale.size()
+              << ") rl_kp(n=" << this->tuning_baseline_rl_kp.size() << ")" << std::endl;
 }
 
 void RL::ReadYaml(const std::string& file_path, const std::string& file_name)

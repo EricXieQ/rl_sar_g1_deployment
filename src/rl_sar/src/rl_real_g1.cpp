@@ -22,6 +22,7 @@ RL_Real::RL_Real(int argc, char **argv)
     this->ang_vel_axis = "body";
     this->robot_name = "g1";
     this->ReadYaml(this->robot_name, "base.yaml");
+    this->LoadTuningBaseline("g1/robomimic/locomotion", "config.yaml");
 
     // auto load FSM by robot_name
     if (FSMManager::GetInstance().IsTypeSupported(this->robot_name))
@@ -272,6 +273,24 @@ std::vector<float> RL_Real::Forward()
     {
         actions = this->model->forward({clamped_obs});
     }
+
+    // Action smoothing (EMA low-pass filter). Reads `action_smooth_alpha` from                                       
+    // YAML; defaults to 1.0 (no smoothing). Smaller alpha = heavier smoothing.                                       
+    // Useful for damping snappy initial joint motions on a fragile real robot.                                       
+    float alpha = 1.0f;                                                                                               
+    if (this->params.Has("action_smooth_alpha"))                                                                      
+    {                                                                                                                 
+        alpha = this->params.Get<float>("action_smooth_alpha");
+    }                                                                       
+    if (alpha < 1.0f && this->last_action_smoothed.size() == actions.size())                                          
+    {                                              
+        for (size_t i = 0; i < actions.size(); ++i)                                                                   
+        {                                                                                    
+            actions[i] = alpha * actions[i] + (1.0f - alpha) * this->last_action_smoothed[i];                         
+        }       
+    }                                                                                                                 
+    this->last_action_smoothed = actions;
+
 
     if (!this->params.Get<std::vector<float>>("clip_actions_upper").empty() && !this->params.Get<std::vector<float>>("clip_actions_lower").empty())
     {

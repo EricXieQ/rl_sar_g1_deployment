@@ -16,6 +16,7 @@
 #include <memory>
 #include <fstream>
 #include <mutex>
+#include <atomic>
 
 #include <yaml-cpp/yaml.h>
 #include "fsm.hpp"
@@ -203,6 +204,12 @@ public:
     RobotState<float> now_state;
     bool rl_init_done = false;
 
+    std::atomic<int> action_scale_percent{60};
+    std::atomic<int> rl_kp_percent{60};
+    std::vector<float> tuning_baseline_action_scale;
+    std::vector<float> tuning_baseline_rl_kp;
+    void LoadTuningBaseline(const std::string& file_path, const std::string& file_name);
+
     // init
     void InitObservations();
     void InitOutputs();
@@ -256,6 +263,13 @@ public:
     std::vector<float> output_dof_tau;
     std::vector<float> output_dof_pos;
     std::vector<float> output_dof_vel;
+
+    // Action smoothing (EMA low-pass filter on policy output).                                                       
+    // Reset whenever a new policy state is entered (InitObservations).
+    // Filter:  smoothed = alpha * raw + (1-alpha) * prev_smoothed                                                    
+    // alpha=1.0 means no smoothing (default), alpha=0.3 is heavy smoothing.                                          
+    // Configured via YAML key `action_smooth_alpha` (1.0 if missing).
+    std::vector<float> last_action_smoothed;    
 
     // thread safety
     std::mutex model_mutex;

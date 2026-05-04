@@ -492,8 +492,8 @@ if(SYSTEM_TYPE STREQUAL "Linux")
     endif()
 endif()
 
-# executable for rl real go2
-if(SYSTEM_TYPE STREQUAL "Linux")
+# executable for rl real go2 (disabled: CycloneDDS mismatch on Foxy/Focal)
+if(FALSE)
     add_executable(rl_real_go2 src/rl_real_go2.cpp)
     target_link_libraries(rl_real_go2
         unitree_sdk2
@@ -526,6 +526,11 @@ if(SYSTEM_TYPE STREQUAL "Linux")
         rl_sdk
         observation_buffer
             ${YAML_CPP_LIBRARIES}
+    )
+    # Prepend bundled CycloneDDS headers so they shadow Foxy's older /opt/ros/foxy/include/dds/dds.h
+    target_include_directories(rl_real_g1 BEFORE PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/library/thirdparty/robot_sdk/unitree/unitree_sdk2/thirdparty/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/library/thirdparty/robot_sdk/unitree/unitree_sdk2/thirdparty/include/ddscxx
     )
     # Add unitree_sdk2 library path to RPATH
     set_target_properties(rl_real_g1 PROPERTIES
@@ -566,8 +571,8 @@ if(SYSTEM_TYPE STREQUAL "Linux")
     endif()
 endif()
 
-# executable for rl real d1
-if(SYSTEM_TYPE STREQUAL "Linux")
+# executable for rl real d1 (disabled: prebuilt SDK requires GLIBC 2.32+ / CXXABI 1.3.13, not on Focal)
+if(FALSE)
     add_executable(rl_real_d1 src/rl_real_d1.cpp)
     target_link_libraries(rl_real_d1
         ${AGIBOT_D1_LIBS}

@@ -69,6 +69,7 @@ g1/robomimic/locomotion:
                             1.0, 1.0,
                             1.0, 1.0]
   num_of_dofs: 29
+
   action_scale: [0.25, 0.25, 0.25,
                  0.25, 0.25, 0.25,
                  0.25, 0.25, 0.25,
@@ -79,6 +80,7 @@ g1/robomimic/locomotion:
                                    0.25, 0.25,
                                    0.25, 0.25,
                                    0.25, 0.25]
+
   wheel_indices: []
   lin_vel_scale: 1.0
   ang_vel_scale: 1.0
