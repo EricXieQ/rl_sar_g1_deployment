@@ -16,6 +16,8 @@
 #include <memory>
 #include <fstream>
 #include <mutex>
+#include <deque>
+#include <chrono>
 
 #include <yaml-cpp/yaml.h>
 #include "fsm.hpp"
@@ -256,6 +258,31 @@ public:
     std::vector<float> output_dof_tau;
     std::vector<float> output_dof_pos;
     std::vector<float> output_dof_vel;
+
+    // Action smoothing (EMA low-pass filter on policy output).
+    // Reset whenever a new policy state is entered (InitObservations).
+    // Filter:  smoothed = alpha * raw + (1-alpha) * prev_smoothed
+    // alpha=1.0 means no smoothing (default), alpha=0.3 is heavy smoothing.
+    // Configured via YAML key `action_smooth_alpha` (1.0 if missing).
+    std::vector<float> last_action_smoothed;
+
+    // Diagnostic ring buffer for the locomotion → ASAP-dab transition plot.
+    // States that want their pre-switch frames included on the plot push
+    // (q, target, kp, wallclock_ms, state_name) here every Run() tick.
+    // Dumped to /tmp/rl_sar_dab_log.csv at the start of ASAPDab::Enter().
+    struct DiagRingFrame {
+        long long wallclock_ms = 0;
+        std::vector<float> q;
+        std::vector<float> tgt;
+        std::vector<float> kp;
+        std::string state_name;
+    };
+    std::deque<DiagRingFrame> diag_ring_buf;
+    std::mutex diag_ring_mutex;
+    void PushDiagRingFrame(const std::string& state_name,
+                           const std::vector<float>& q,
+                           const std::vector<float>& tgt,
+                           const std::vector<float>& kp);
 
     // thread safety
     std::mutex model_mutex;

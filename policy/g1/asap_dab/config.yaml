@@ -1,0 +1,105 @@
+# ASAP wall-dab motion tracking policy.
+#
+# Trained in IsaacGym via the ASAP framework (model_93600.pt). The TorchScript
+# wrapper in policy.pt converts rl_sar's term-priority history layout into
+# ASAP's exact 380-dim observation layout, drops wrist DOFs, and pads the
+# 23-dim action back to 29 DOFs.
+#
+# IMPORTANT: The observation list MUST be in this exact order
+# (actions, ang_vel, dof_pos, dof_vel, gravity_vec, RoboMimic_Deploy/phase),
+# with `term` priority and history [0,1,2,3], because the wrapper assumes
+# this layout when slicing the 376-dim input vector. Do not reorder.
+#
+# Phase signal: rl_sar computes
+#   phase = episode_length_buf * dt * decimation / motion_length
+# `motion_length` is set in fsm_g1.hpp's RLFSMStateRLASAPDab::Enter()
+# to 5.93s (the dab motion duration).
+
+g1/asap_dab:
+  model_name: "policy.pt"
+
+  # 4-frame term-priority history of [actions(29), ang_vel(3), dof_pos(29),
+  # dof_vel(29), gravity_vec(3), phase(1)] = 94 floats per frame -> 376 total.
+  num_observations: 376
+  observations: ["actions", "ang_vel", "dof_pos", "dof_vel", "gravity_vec", "RoboMimic_Deploy/phase"]
+  observations_history: [0, 1, 2, 3]   # 0 = newest
+  observations_history_priority: "term"
+  clip_obs: 100.0
+
+  # Action clipping is symmetric. The wrapper outputs zero on wrist joints
+  # so they will be inside any reasonable bound, but keep it tight anyway.
+  clip_actions_lower: [-100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
+                       -100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
+                       -100.0, -100.0, -100.0,
+                       -100.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
+                       -100.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0]
+  clip_actions_upper: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+                       100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+                       100.0, 100.0, 100.0,
+                       100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+                       100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+
+  # PD gains used at runtime. ASAP training used these exact values.
+  rl_kp: [100.0, 100.0, 100.0, 200.0, 20.0, 20.0,
+          100.0, 100.0, 100.0, 200.0, 20.0, 20.0,
+          400.0, 400.0, 400.0,
+          90.0, 60.0, 20.0, 60.0, 10.0, 10.0, 10.0,
+          90.0, 60.0, 20.0, 60.0, 10.0, 10.0, 10.0]
+  rl_kd: [2.5, 2.5, 2.5, 5.0, 0.2, 0.1,
+          2.5, 2.5, 2.5, 5.0, 0.2, 0.1,
+          5.0, 5.0, 5.0,
+          2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2,
+          2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2]
+  fixed_kp: [100.0, 100.0, 100.0, 150.0, 40.0, 40.0,
+             100.0, 100.0, 100.0, 150.0, 40.0, 40.0,
+             300.0, 300.0, 300.0,
+             100.0, 100.0, 50.0, 50.0, 20.0, 20.0, 20.0,
+             100.0, 100.0, 50.0, 50.0, 20.0, 20.0, 20.0]
+  fixed_kd: [2.0, 2.0, 2.0, 4.0, 2.0, 2.0,
+             2.0, 2.0, 2.0, 4.0, 2.0, 2.0,
+             3.0, 3.0, 3.0,
+             2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0,
+             2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0]
+
+  num_of_dofs: 29
+
+  # action_scale is 0.25 across the board (ASAP's training value).
+  action_scale: [0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+                 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+                 0.25, 0.25, 0.25,
+                 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+                 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
+  wheel_indices: []
+
+  # Observation scales (must match what ASAP used during training).
+  lin_vel_scale: 1.0      # unused, ASAP doesn't observe lin_vel
+  ang_vel_scale: 0.25     # ASAP scale
+  dof_pos_scale: 1.0      # ASAP scale
+  dof_vel_scale: 0.05     # ASAP scale
+  commands_scale: [1.0, 1.0, 1.0]  # unused, no commands obs
+
+  torque_limits: [88.0, 88.0, 88.0, 139.0, 50.0, 50.0,
+                  88.0, 88.0, 88.0, 139.0, 50.0, 50.0,
+                  88.0, 50.0, 50.0,
+                  25.0, 25.0, 25.0, 25.0, 5.0, 5.0, 5.0,
+                  25.0, 25.0, 25.0, 25.0, 5.0, 5.0, 5.0]
+
+  # Standing pose. ASAP uses these as the "default" the policy learned.
+  default_dof_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  # Identity joint mapping (rl_sar SDK order == ASAP training order for G1).
+  joint_mapping: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+
+  # Action smoothing: low-pass filter applied to the policy output to damp
+  # the snappy initial joint motions that destabilize the dab. The dab was
+  # trained without smoothing so going too low changes the motion shape.
+  # Tuning guide:
+  #   1.00 = no smoothing (the trained policy)
+  #   0.50 = strong smoothing, motion is sluggish but very stable
+  #   0.30 = sluggish, motion may not complete
+  # 0.7 is a good first try - removes the worst spikes without losing much.
+  action_smooth_alpha: 0.7
