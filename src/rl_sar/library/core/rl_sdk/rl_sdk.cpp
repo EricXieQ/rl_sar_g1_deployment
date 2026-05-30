@@ -194,10 +194,10 @@ void RL::InitObservations()
     this->obs.dof_vel.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
     this->obs.actions.clear();
     this->obs.actions.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
-    // Reset the action smoothing filter so it doesn't carry stale values                                             
+    // Reset the action smoothing filter so it doesn't carry stale values
     // from a previous policy state.
-    this->last_action_smoothed.clear();                                                                               
-    this->last_action_smoothed.resize(this->params.Get<int>("num_of_dofs"), 0.0f);  
+    this->last_action_smoothed.clear();
+    this->last_action_smoothed.resize(this->params.Get<int>("num_of_dofs"), 0.0f);
     this->ComputeObservation();
 }
 
@@ -508,6 +508,26 @@ std::vector<T> ReadVectorFromYaml(const YAML::Node &node)
         values.push_back(val.as<T>());
     }
     return values;
+}
+
+void RL::PushDiagRingFrame(const std::string& state_name,
+                           const std::vector<float>& q,
+                           const std::vector<float>& tgt,
+                           const std::vector<float>& kp)
+{
+    std::lock_guard<std::mutex> lock(this->diag_ring_mutex);
+    DiagRingFrame f;
+    f.wallclock_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    f.state_name = state_name;
+    f.q = q;
+    f.tgt = tgt;
+    f.kp = kp;
+    this->diag_ring_buf.push_back(std::move(f));
+    // Cap at ~1.5s of frames at 200Hz.
+    static constexpr size_t kDiagRingMax = 300;
+    while (this->diag_ring_buf.size() > kDiagRingMax)
+        this->diag_ring_buf.pop_front();
 }
 
 void RL::LoadTuningBaseline(const std::string& file_path, const std::string& file_name)

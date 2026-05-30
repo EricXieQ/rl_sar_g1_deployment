@@ -161,6 +161,22 @@ RLFSMStateRLRoboMimicLocomotion(RL *rl) : RLFSMState(*rl, "RLFSMStateRLRoboMimic
 
         std::cout << "\r\033[K" << std::flush << LOGGER::INFO << "RL Controller [" << rl.config_name << "] x:" << rl.control.x << " y:" << rl.control.y << " yaw:" << rl.control.yaw << std::flush;
         RLControl();
+
+        // DIAGNOSTIC: push current frame into the pre-switch ring buffer so
+        // ASAPDab::Enter() can prepend it to the CSV log when the operator
+        // presses key 5. Note: motor_command.q/kp are in *locomotion's*
+        // policy-order at this point — the Python plotter remaps them.
+        {
+            int ndof = rl.params.Get<int>("num_of_dofs");
+            std::vector<float> qv(ndof), tv(ndof), kv(ndof);
+            for (int i = 0; i < ndof; ++i)
+            {
+                qv[i] = fsm_state->motor_state.q[i];
+                tv[i] = fsm_command->motor_command.q[i];
+                kv[i] = fsm_command->motor_command.kp[i];
+            }
+            rl.PushDiagRingFrame("Locomotion", qv, tv, kv);
+        }
     }
 
     void Exit() override
@@ -200,15 +216,14 @@ RLFSMStateRLRoboMimicLocomotion(RL *rl) : RLFSMState(*rl, "RLFSMStateRLRoboMimic
         }
         else if (rl.control.current_keyboard == Input::Keyboard::Num5)
         {
-            // Smooth path: pre-position the body in dab frame-0 pose first,
-            // then auto-transition into the policy. Use this with the hoist.
-            return "RLFSMStateASAPDabGetReady";
-        }
-        else if (rl.control.current_keyboard == Input::Keyboard::Num6)
-        {
-            // Direct path: jump straight into the policy. Has a residual
-            // first-action jolt but the policy is alive immediately, so the
-            // robot can actively balance. Use for quick ground tests.
+            // Direct entry into the ASAP dab. We tried a fixed-PD pre-stage
+            // (RLFSMStateASAPDabGetReady, removed) to pre-position the body
+            // in frame-0 pose, but ASAP is a motion-tracking policy and
+            // needs to be actively running to balance — any window where
+            // it's not commanding lets the body drift, and the policy can't
+            // recover from that. Direct switch keeps the residual first-
+            // action jolt but the policy is alive immediately, which is
+            // safer overall.
             return "RLFSMStateRLASAPDab";
         }
         return state_name_;
@@ -477,115 +492,17 @@ RLFSMStateRLWholeBodyTrackingGangnamStyle(RL *rl) : RLFSMState(*rl, "RLFSMStateR
 };
 
 // ============================================================================
-// Pre-stage for the ASAP dab. Uses fixed-PD interpolation (no policy) to bring
-// the body from wherever it is right now to the dab's frame-0 pose
-// (elbows pre-bent ~68°, waist pitched -27°, hips tucked, etc.) over a few
-// seconds, then auto-transitions to RLFSMStateRLASAPDab. Without this
-// pre-stage, ASAP's first action sees a body that's far from where the
-// trained trajectory expects it, producing a violent corrective torque
-// (the transition jolt). With this pre-stage, ASAP starts from on-trajectory.
-// ============================================================================
-class RLFSMStateASAPDabGetReady : public RLFSMState
-{
-public:
-    RLFSMStateASAPDabGetReady(RL *rl) : RLFSMState(*rl, "RLFSMStateASAPDabGetReady") {}
-
-    // Frame-0 pose of the wall-dab motion in 29-DOF SDK order. Computed
-    // offline from the .pkl (see scripts/check_dab_start_pose.py). Wrist
-    // joints (19-21, 26-28) aren't in the motion, so they stay at 0.
-    static constexpr float kDabFrame0[29] = {
-        -0.383f,  0.067f, -0.232f,  0.021f,  0.001f,  0.0f,  // L leg
-        -0.517f, -0.061f, -0.200f,  0.199f,  0.008f,  0.0f,  // R leg
-         0.178f,  0.015f, -0.468f,                           // waist
-         0.145f,  0.158f, -0.449f,  1.195f,  0.0f, 0.0f, 0.0f,  // L arm
-         0.149f, -0.144f,  0.164f,  1.191f,  0.0f, 0.0f, 0.0f,  // R arm
-    };
-
-    // Soft-but-firm fixed PD gains. Mirrors ASAP's fixed_kp/fixed_kd from
-    // policy/g1/asap_dab/config.yaml — gentle enough to ease into the lean
-    // without slamming, firm enough to actually reach the target.
-    static constexpr float kInterpKp[29] = {
-        100, 100, 100, 150,  40,  40,
-        100, 100, 100, 150,  40,  40,
-        300, 300, 300,
-        100, 100,  50,  50,  20,  20,  20,
-        100, 100,  50,  50,  20,  20,  20,
-    };
-    static constexpr float kInterpKd[29] = {
-        2, 2, 2, 4, 2, 2,
-        2, 2, 2, 4, 2, 2,
-        3, 3, 3,
-        2, 2, 2, 2, 1, 1, 1,
-        2, 2, 2, 2, 1, 1, 1,
-    };
-
-    static constexpr float kInterpDurationSec = 3.0f;
-
-    float percent = 0.0f;
-    std::vector<float> start_pose;
-
-    void Enter() override
-    {
-        std::cout << LOGGER::INFO
-                  << "[ASAPDabGetReady] Easing into dab frame-0 pose over "
-                  << kInterpDurationSec << "s. Hold still — robot is leaning forward.\n";
-        percent = 0.0f;
-        start_pose.assign(29, 0.0f);
-        for (int i = 0; i < 29; ++i) start_pose[i] = fsm_state->motor_state.q[i];
-    }
-
-    void Run() override
-    {
-        // Advance percent by one FSM tick. dt is the physics tick (0.005s
-        // = 200 Hz), set in the loaded config.
-        float dt = rl.params.Get<float>("dt");
-        percent += dt / kInterpDurationSec;
-        if (percent > 1.0f) percent = 1.0f;
-
-        for (int i = 0; i < 29; ++i)
-        {
-            float target = (1.0f - percent) * start_pose[i] + percent * kDabFrame0[i];
-            fsm_command->motor_command.q[i]   = target;
-            fsm_command->motor_command.dq[i]  = 0.0f;
-            fsm_command->motor_command.kp[i]  = kInterpKp[i];
-            fsm_command->motor_command.kd[i]  = kInterpKd[i];
-            fsm_command->motor_command.tau[i] = 0.0f;
-        }
-        LOGGER::PrintProgress(percent, "DabGetReady");
-    }
-
-    void Exit() override {}
-
-    std::string CheckChange() override
-    {
-        // Emergency / abort routes — always available.
-        if (rl.control.current_keyboard == Input::Keyboard::P || rl.control.current_gamepad == Input::Gamepad::LB_X)
-        {
-            return "RLFSMStatePassive";
-        }
-        if (rl.control.current_keyboard == Input::Keyboard::Num1 || rl.control.current_gamepad == Input::Gamepad::RB_DPadUp)
-        {
-            return "RLFSMStateRLRoboMimicLocomotion";
-        }
-        if (rl.control.current_keyboard == Input::Keyboard::Num9 || rl.control.current_gamepad == Input::Gamepad::B)
-        {
-            return "RLFSMStateGetDown";
-        }
-        // Auto-transition into the actual dab once we've reached frame-0.
-        if (percent >= 1.0f)
-        {
-            return "RLFSMStateRLASAPDab";
-        }
-        return state_name_;
-    }
-};
-
-// ============================================================================
 // ASAP wall-dab motion tracking policy. Loaded as a TorchScript wrapper at
 // policy/g1/asap_dab/policy.pt that converts rl_sar's term-priority history
 // layout into the ASAP actor's expected 380-dim layout. Phase advances over
-// 5.93s (the dab motion duration). Entered from RLFSMStateASAPDabGetReady,
-// which has already placed the body in frame-0 pose.
+// 5.93s (the dab motion duration). Entered directly from locomotion (key 5).
+// We tried inserting a fixed-PD pre-stage to pre-position the body in
+// frame-0 pose, but motion-tracking policies need to be actively running to
+// balance — any window without policy commands lets the body drift, and the
+// policy can't recover. So direct entry it is, with the residual first-
+// action jolt as the cost. Future fix: retrain ASAP with wider initial-
+// state distribution, or migrate to a motion-loader-based architecture
+// (whole_body_tracking style) that re-anchors the trajectory at deploy time.
 // ============================================================================
 class RLFSMStateRLASAPDab : public RLFSMState
 {
@@ -647,6 +564,35 @@ public:
             for (int i = 0; i < ndof_entry; ++i) diag_log_file << ",tgt" << i;
             for (int i = 0; i < ndof_entry; ++i) diag_log_file << ",kp" << i;
             diag_log_file << "\n";
+
+            // DIAGNOSTIC: dump the locomotion ring buffer first. Each frame
+            // gets a relative timestamp = wallclock - anchor (negative, since
+            // these all happened BEFORE the FSM-switch moment captured by
+            // wallclock_anchor_ms). Tags become "pre_<state_name>" so the
+            // plotter can distinguish.
+            {
+                std::lock_guard<std::mutex> lock(rl.diag_ring_mutex);
+                for (const auto& f : rl.diag_ring_buf)
+                {
+                    // Both time_ms and wallclock_ms are "ms since FSM switch"
+                    // for consistency with asap rows. They'll be negative for
+                    // pre-switch frames (which is what we want — they plot to
+                    // the left of t=0).
+                    long long rel_ms = f.wallclock_ms - wallclock_anchor_ms;
+                    diag_log_file << rel_ms << "," << rel_ms
+                                  << ",pre_" << f.state_name;
+                    int n = (int)f.q.size();
+                    for (int i = 0; i < ndof_entry; ++i)
+                        diag_log_file << "," << (i < n ? f.q[i] : 0.0f);
+                    for (int i = 0; i < ndof_entry; ++i)
+                        diag_log_file << "," << (i < (int)f.tgt.size() ? f.tgt[i] : 0.0f);
+                    for (int i = 0; i < ndof_entry; ++i)
+                        diag_log_file << "," << (i < (int)f.kp.size() ? f.kp[i] : 0.0f);
+                    diag_log_file << "\n";
+                }
+            }
+
+            // Then the loco_last row (the snapshot taken BEFORE InitRL ran).
             diag_log_file << "0,0,loco_last";
             for (int i = 0; i < ndof_entry; ++i) diag_log_file << "," << pre_switch_q[i];
             for (int i = 0; i < ndof_entry; ++i) diag_log_file << "," << pre_switch_tgt[i];
@@ -867,8 +813,6 @@ public:
             return std::make_shared<g1_fsm::RLFSMStateRLWholeBodyTrackingDance102>(rl);
         else if (state_name == "RLFSMStateRLWholeBodyTrackingGangnamStyle")
             return std::make_shared<g1_fsm::RLFSMStateRLWholeBodyTrackingGangnamStyle>(rl);
-        else if (state_name == "RLFSMStateASAPDabGetReady")
-            return std::make_shared<g1_fsm::RLFSMStateASAPDabGetReady>(rl);
         else if (state_name == "RLFSMStateRLASAPDab")
             return std::make_shared<g1_fsm::RLFSMStateRLASAPDab>(rl);
         return nullptr;
@@ -884,7 +828,6 @@ public:
             "RLFSMStateRLRoboMimicCharleston",
             "RLFSMStateRLWholeBodyTrackingDance102",
             "RLFSMStateRLWholeBodyTrackingGangnamStyle",
-            "RLFSMStateASAPDabGetReady",
             "RLFSMStateRLASAPDab"
         };
     }
