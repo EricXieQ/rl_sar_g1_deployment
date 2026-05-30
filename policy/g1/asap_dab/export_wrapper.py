@@ -151,10 +151,14 @@ class RlSarASAPWrapper(nn.Module):
 
 
 def main():
+    # Off-trajectory entry fine-tuned checkpoint (resumed from the original
+    # model_93600 with off_trajectory_entry_fraction=0.2). This is the version
+    # that handles the loco-stance entry without the first-tick jolt/fall.
+    # Original pre-fine-tune was: 20260328_172005-...wall_domainrand.../model_93600.pt
     ckpt_path = (
         "/home/eric/Project/humanoid/ASAP/logs/DabTracking/"
-        "20260328_172005-DabTracking_wall_domainrand-motion_tracking-"
-        "g1_29dof_anneal_23dof/model_93600.pt"
+        "20260504_015435-DabTracking_wall_offtraj_finetune_v3-motion_tracking-"
+        "g1_29dof_anneal_23dof/model_25600.pt"
     )
     out_path = (
         "/home/eric/Project/humanoid/rl_sar/policy/g1/asap_dab/policy.pt"
