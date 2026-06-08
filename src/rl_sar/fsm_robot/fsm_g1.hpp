@@ -528,6 +528,10 @@ public:
             pre_switch_tgt[i] = fsm_command->motor_command.q[i];
             pre_switch_kp[i]  = fsm_command->motor_command.kp[i];
         }
+        // Capture locomotion's joint_mapping BEFORE InitRL swaps in the dab
+        // config. pre_switch_q is in locomotion's policy order; we need this
+        // mapping to convert it to SDK order for a correct hold-seed below.
+        std::vector<int> loco_mapping = rl.params.Get<std::vector<int>>("joint_mapping");
         // Wall-clock time of the switch — anchor for the time axis.
         wallclock_anchor_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -549,7 +553,7 @@ public:
         // Wall-dab motion duration in seconds (5.93s, from the .pkl file).
         rl.motion_length = 5.93f;
 
-        entry_pose = pre_switch_q;  // for the existing first-tick diff print
+        // entry_pose is seeded below in SDK order (see JOLT FIX 1/2).
         logged_first_tick = false;
         ramp_in_ticks = 0;
         ramp_in_active = (kEntryBlendSec > 0.0f);
@@ -601,15 +605,25 @@ public:
             diag_log_file.flush();
         }
 
-        // JOLT FIX (1/2): seed motor_command.q with the robot's *current*
-        // joint positions (in ASAP/SDK order, since InitRL has applied the
-        // new mapping). PD now starts with zero error, which neutralizes the
-        // "leftover-locomotion bytes reinterpreted under new mapping" jolt
-        // we'd otherwise see at the gap edge.
-        for (int i = 0; i < ndof_entry; ++i)
+        // JOLT FIX (1/2): seed motor_command.q to HOLD the robot's pre-switch
+        // pose, in SDK order. pre_switch_q was captured in locomotion's policy
+        // order, and motor_state.q here is still stale loco-order (GetState
+        // hasn't run under the dab config yet) — so seeding directly from
+        // either scrambles joints once the dab applies its identity mapping.
+        // Remap via locomotion's joint_mapping: physical joint loco_mapping[slot]
+        // held the value pre_switch_q[slot]. PD then holds the true entry pose
+        // through the model-load / history-fill window instead of a scrambled
+        // leftover command — killing the handoff jolt and the phantom plot jump.
+        std::vector<float> sdk_entry_pose(ndof_entry, 0.0f);
+        for (int slot = 0; slot < ndof_entry && slot < (int)loco_mapping.size(); ++slot)
         {
-            fsm_command->motor_command.q[i] = fsm_state->motor_state.q[i];
+            int sdk_idx = loco_mapping[slot];
+            if (sdk_idx >= 0 && sdk_idx < ndof_entry)
+                sdk_entry_pose[sdk_idx] = pre_switch_q[slot];
         }
+        for (int i = 0; i < ndof_entry; ++i)
+            fsm_command->motor_command.q[i] = sdk_entry_pose[i];
+        entry_pose = sdk_entry_pose;  // SDK order — correct first-tick diag & CSV
     }
 
     // Fall-detection thresholds (degrees). If pitch or roll exceeds these
