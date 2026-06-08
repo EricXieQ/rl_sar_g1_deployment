@@ -234,6 +234,16 @@ def main():
             asap_mask_local = (tag == "asap")
             in_gap = asap_mask_local & (time_ms >= 0) & (time_ms < init_rl_gap_end_ms)
 
+        # NaN-out the red PD target on asap rows BEFORE the policy is active
+        # (0 -> asap_start_ms). In that window the policy hasn't run yet, so
+        # motor_command.q still holds locomotion's leftover command in loco's
+        # (scrambled) joint order; asap rows aren't remapped to SDK order, so
+        # the logged target is wrong there. Mask it so the red line connects
+        # the last valid loco command to the first real policy command.
+        tgt_premask = None
+        if asap_start_ms is not None:
+            tgt_premask = (tag == "asap") & (time_ms >= 0) & (time_ms < asap_start_ms)
+
         for ax, name in zip(axes, JOINTS_TO_PLOT):
             if name is None:
                 ax.axis("off")
@@ -246,14 +256,31 @@ def main():
             q_deg = np.rad2deg(q_arr).astype(float)
             tgt_deg = np.rad2deg(tgt_arr).astype(float)
 
-            # Mask the artifact-corrupted blue samples inside the InitRL gap.
-            if has_wallclock and init_rl_gap_end_ms > 0:
+            # Mask the artifact-corrupted blue samples across the whole handoff
+            # window (0 -> ASAP active). motor_state.q is read while InitRL is
+            # swapping the model/joint-mapping, so those readings are invalid
+            # (they show physically-impossible jumps). Hide them; blue resumes
+            # once the policy is active and readings are trustworthy again.
+            q_deg_clean = q_deg
+            if tgt_premask is not None and tgt_premask.any():
+                q_deg_clean = q_deg.copy()
+                q_deg_clean[tgt_premask] = np.nan
+            elif has_wallclock and init_rl_gap_end_ms > 0:
                 q_deg_clean = q_deg.copy()
                 q_deg_clean[in_gap] = np.nan
-            else:
-                q_deg_clean = q_deg
 
-            ax.plot(time_ms, tgt_deg, label="PD target", linewidth=2,
+            # Render the pre-policy handoff target as a continuous HOLD: carry
+            # the last valid pre-switch target across the window instead of the
+            # (unreliable, loco-order) logged values there. Matches the intended
+            # behavior — PD holds the entry pose until the policy first runs.
+            tgt_deg_clean = tgt_deg
+            if tgt_premask is not None and tgt_premask.any():
+                tgt_deg_clean = tgt_deg.copy()
+                pre_idx = np.where((time_ms < 0) & ~np.isnan(tgt_deg))[0]
+                if len(pre_idx):
+                    tgt_deg_clean[tgt_premask] = tgt_deg[pre_idx[-1]]
+
+            ax.plot(time_ms, tgt_deg_clean, label="PD target", linewidth=2,
                     color="tab:red", linestyle="-",
                     marker="." if xlim is not None else None, markersize=3)
             ax.plot(time_ms, q_deg_clean, label="motor q (actual)", linewidth=1.5,
