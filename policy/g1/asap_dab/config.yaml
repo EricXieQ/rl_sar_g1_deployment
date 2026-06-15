@@ -103,3 +103,13 @@ g1/asap_dab:
   #   0.30 = sluggish, motion may not complete
   # 0.7 is a good first try - removes the worst spikes without losing much.
   action_smooth_alpha: 0.7
+
+  # Entry-only command interpolation. The policy's first action after the
+  # loco->dab switch is a hard step from the standing pose to the dab's opening
+  # pose. When true,z RLControl ramps the command from the hold pose toward the
+  # live policy output over `interp_entry_steps` PD ticks -- ONLY for the entry
+  # -- then applies policy outputs directly so the dab itself stays crisp.
+  interpolate_commands: true
+  # Length of the entry ramp in PD ticks (200Hz => 5ms each). Default is
+  # 8*decimation (32 ticks = 160ms). Increase for a softer/slower entry.
+  interp_entry_steps: 32

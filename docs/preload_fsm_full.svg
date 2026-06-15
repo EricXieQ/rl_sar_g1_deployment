@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1580" height="900" viewBox="0 0 1580 900" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368"/>
+    </marker>
+    <marker id="arg" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#34a853"/>
+    </marker>
+  </defs>
+  <rect width="1580" height="900" fill="#ffffff"/>
+
+  <!-- ============ SECTION 1: LAUNCH ============ -->
+  <text x="40" y="40" font-size="20" font-weight="bold" fill="#4285f4">&#9312; AT LAUNCH (before the state machine starts)</text>
+
+  <rect x="270" y="54" width="320" height="54" rx="10" fill="#f1f3f4" stroke="#9aa0a6" stroke-width="2"/>
+  <text x="430" y="78" font-size="18" font-weight="bold" fill="#202124" text-anchor="middle">Program launches</text>
+  <text x="430" y="98" font-size="15" fill="#3c4043" text-anchor="middle">constructor runs</text>
+  <line x1="430" y1="108" x2="430" y2="140" stroke="#5f6368" stroke-width="2" marker-end="url(#ar)"/>
+
+  <rect x="250" y="144" width="360" height="92" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="2.5"/>
+  <text x="430" y="172" font-size="19" font-weight="bold" fill="#202124" text-anchor="middle">PreloadModels("g1")</text>
+  <text x="430" y="195" font-size="15" fill="#3c4043" text-anchor="middle">load all 5 models from disk into RAM</text>
+  <text x="430" y="216" font-size="15" fill="#3c4043" text-anchor="middle">cache: preloaded_models_</text>
+
+  <!-- 5 policy names callout -->
+  <rect x="650" y="144" width="400" height="92" rx="10" fill="#f8f9fa" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="668" y="168" font-size="15" font-weight="bold" fill="#3c4043">the 5 g1 policies cached:</text>
+  <text x="668" y="192" font-size="14" fill="#202124">asap_dab (the dab) &#183; locomotion &#183; charleston</text>
+  <text x="668" y="214" font-size="14" fill="#202124">dance_102 &#183; gangnam_style</text>
+  <line x1="650" y1="190" x2="612" y2="190" stroke="#9aa0a6" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <text x="448" y="266" font-size="15" font-weight="bold" fill="#34a853">cache now full, FSM starts</text>
+  <line x1="430" y1="236" x2="430" y2="300" stroke="#5f6368" stroke-width="3" marker-end="url(#ar)"/>
+
+  <!-- divider -->
+  <line x1="40" y1="286" x2="1060" y2="286" stroke="#dadce0" stroke-width="2" stroke-dasharray="6 6"/>
+  <text x="40" y="316" font-size="20" font-weight="bold" fill="#5f6368">&#9313; STATE MACHINE (fsm_g1.hpp)</text>
+
+  <!-- ============ SECTION 2: FSM STATES ============ -->
+  <!-- PASSIVE -->
+  <rect x="270" y="336" width="320" height="60" rx="10" fill="#f1f3f4" stroke="#9aa0a6" stroke-width="2"/>
+  <text x="430" y="362" font-size="18" font-weight="bold" fill="#202124" text-anchor="middle">Passive (kp = 0)</text>
+  <text x="430" y="383" font-size="14" fill="#3c4043" text-anchor="middle">RLFSMStatePassive</text>
+  <text x="620" y="372" font-size="15" fill="#3c4043">startup / e-stop, motors limp</text>
+  <line x1="430" y1="396" x2="430" y2="430" stroke="#5f6368" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="445" y="419" font-size="15" font-weight="bold" fill="#202124">Num 0</text>
+
+  <!-- GETUP -->
+  <rect x="270" y="434" width="320" height="60" rx="10" fill="#f1f3f4" stroke="#9aa0a6" stroke-width="2"/>
+  <text x="430" y="460" font-size="18" font-weight="bold" fill="#202124" text-anchor="middle">GetUp</text>
+  <text x="430" y="481" font-size="14" fill="#3c4043" text-anchor="middle">RLFSMStateGetUp</text>
+  <text x="620" y="470" font-size="15" fill="#3c4043">fixed-PD interpolation to standing (2 s)</text>
+  <line x1="430" y1="494" x2="430" y2="528" stroke="#5f6368" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="445" y="517" font-size="15" font-weight="bold" fill="#202124">Num 1</text>
+
+  <!-- LOCOMOTION -->
+  <rect x="270" y="532" width="320" height="78" rx="10" fill="#e8f0fe" stroke="#4285f4" stroke-width="2.5"/>
+  <text x="430" y="560" font-size="18" font-weight="bold" fill="#202124" text-anchor="middle">Locomotion</text>
+  <text x="430" y="581" font-size="14" fill="#3c4043" text-anchor="middle">(robomimic/locomotion)</text>
+  <text x="430" y="600" font-size="13" fill="#188038" text-anchor="middle" font-weight="bold">Enter(): InitRL() &#8594; cache hit</text>
+  <text x="620" y="565" font-size="15" fill="#3c4043">RL policy: balance + idle stand</text>
+  <text x="620" y="588" font-size="14" fill="#3c4043">runtime tune keys: +/-  action_scale,  [ ]  rl_kp</text>
+  <line x1="430" y1="610" x2="430" y2="648" stroke="#5f6368" stroke-width="3" marker-end="url(#ar)"/>
+  <text x="445" y="634" font-size="15" font-weight="bold" fill="#ea4335">Num 5  (the jolt edge)</text>
+
+  <!-- DAB -->
+  <rect x="270" y="652" width="320" height="86" rx="10" fill="#e8f0fe" stroke="#4285f4" stroke-width="3"/>
+  <text x="430" y="680" font-size="18" font-weight="bold" fill="#202124" text-anchor="middle">ASAP Dab</text>
+  <text x="430" y="701" font-size="14" fill="#3c4043" text-anchor="middle">(TorchScript policy)</text>
+  <text x="430" y="722" font-size="13" fill="#188038" text-anchor="middle" font-weight="bold">Enter(): InitRL("g1/asap_dab")</text>
+  <text x="620" y="685" font-size="15" font-weight="bold" fill="#188038">model already in RAM</text>
+  <text x="620" y="708" font-size="15" fill="#3c4043">reused from cache: ~0 ms, no disk read</text>
+  <line x1="430" y1="738" x2="430" y2="772" stroke="#5f6368" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="445" y="761" font-size="14" fill="#3c4043">motion ends OR fall detected</text>
+
+  <!-- BACK -->
+  <rect x="270" y="776" width="320" height="46" rx="10" fill="#f1f3f4" stroke="#9aa0a6" stroke-width="2"/>
+  <text x="430" y="804" font-size="16" font-weight="bold" fill="#202124" text-anchor="middle">back to Locomotion</text>
+  <!-- return arrow up the left -->
+  <path d="M270,799 C150,799 150,571 268,571" fill="none" stroke="#9aa0a6" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+
+  <!-- ===== cache reuse: dotted green arrow from cache down to the RL Enter()s ===== -->
+  <path d="M250,205 C120,205 120,690 268,693" fill="none" stroke="#34a853" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arg)"/>
+  <text x="44" y="610" font-size="14" font-weight="bold" fill="#34a853" transform="rotate(-90 44 610)">cached once, reused at every Enter()</text>
+
+  <!-- ===== LEGEND: FSM state methods ===== -->
+  <text x="1110" y="346" font-size="19" font-weight="bold" fill="#5f6368">FSM state methods</text>
+  <text x="1110" y="368" font-size="14" fill="#9aa0a6">(every state implements these)</text>
+
+  <!-- table body + header/highlight fills -->
+  <rect x="1110" y="384" width="450" height="312" rx="8" fill="#ffffff" stroke="#c0c4c9" stroke-width="1.5"/>
+  <rect x="1111" y="385" width="448" height="40" fill="#f1f3f4"/>
+  <rect x="1111" y="425" width="448" height="72" fill="#e8f0fe"/>
+  <!-- column separators -->
+  <line x1="1258" y1="384" x2="1258" y2="696" stroke="#c0c4c9" stroke-width="1"/>
+  <line x1="1410" y1="384" x2="1410" y2="696" stroke="#c0c4c9" stroke-width="1"/>
+  <!-- row separators -->
+  <line x1="1110" y1="425" x2="1560" y2="425" stroke="#c0c4c9" stroke-width="1.2"/>
+  <line x1="1110" y1="497" x2="1560" y2="497" stroke="#c0c4c9" stroke-width="1"/>
+  <line x1="1110" y1="569" x2="1560" y2="569" stroke="#c0c4c9" stroke-width="1"/>
+  <line x1="1110" y1="641" x2="1560" y2="641" stroke="#c0c4c9" stroke-width="1"/>
+
+  <!-- header -->
+  <text x="1184" y="410" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">Method</text>
+  <text x="1334" y="410" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">When it runs</text>
+  <text x="1485" y="410" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">Purpose</text>
+
+  <!-- Enter() (highlighted) -->
+  <text x="1124" y="466" font-size="16" font-weight="bold" fill="#1a73e8" font-family="Menlo, Consolas, monospace">Enter()</text>
+  <text x="1270" y="458" font-size="14" fill="#3c4043">once, the moment</text>
+  <text x="1270" y="478" font-size="14" fill="#3c4043">you arrive</text>
+  <text x="1422" y="466" font-size="14" font-weight="bold" fill="#202124">one-time setup</text>
+
+  <!-- Run() -->
+  <text x="1124" y="537" font-size="16" fill="#1a73e8" font-family="Menlo, Consolas, monospace">Run()</text>
+  <text x="1270" y="537" font-size="14" fill="#3c4043">every tick (200 Hz)</text>
+  <text x="1422" y="529" font-size="14" fill="#3c4043">compute &amp; send</text>
+  <text x="1422" y="549" font-size="14" fill="#3c4043">motor commands</text>
+
+  <!-- CheckChange() -->
+  <text x="1124" y="609" font-size="14" fill="#1a73e8" font-family="Menlo, Consolas, monospace">CheckChange()</text>
+  <text x="1270" y="609" font-size="14" fill="#3c4043">every tick</text>
+  <text x="1422" y="601" font-size="14" fill="#3c4043">pick next state</text>
+  <text x="1422" y="621" font-size="14" fill="#3c4043">(or stay)</text>
+
+  <!-- Exit() -->
+  <text x="1124" y="673" font-size="16" fill="#1a73e8" font-family="Menlo, Consolas, monospace">Exit()</text>
+  <text x="1270" y="673" font-size="14" fill="#3c4043">once, on leaving</text>
+  <text x="1422" y="673" font-size="14" fill="#3c4043">cleanup</text>
+
+  <!-- ===== verification footer ===== -->
+  <rect x="40" y="838" width="1500" height="46" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5"/>
+  <text x="60" y="867" font-size="15" fill="#202124"><tspan font-weight="bold" fill="#188038">&#10003; Verified externally</tspan>  (scripts/verify_in_ram.sh): at the Num 5 switch, /proc/&lt;pid&gt;/io shows <tspan font-weight="bold">0 disk reads with preload ON</tspan>, vs a ~1.5 MB read with preload OFF.</text>
+</svg>

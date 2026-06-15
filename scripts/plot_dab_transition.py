@@ -135,9 +135,16 @@ def main():
         loco_wc = float(rows[loco_idx][header.index("wallclock_ms")]) if "wallclock_ms" in header else loco_t
         asap_wc = float(rows[asap_idx][header.index("wallclock_ms")]) if "wallclock_ms" in header else asap_t
         gap_row = ["nan"] * len(header)
-        gap_row[header.index("time_ms")] = str(0.5 * (loco_t + asap_t))
+        # Place the held placeholder just BEFORE the first asap sample (not at
+        # the band midpoint) so the hold-filled red/blue lines stay flat across
+        # the ENTIRE load gap, then step cleanly at the band's right edge --
+        # matching the physical "command held during load, then steps once the
+        # first dab target arrives" behavior. A midpoint placeholder makes the
+        # descent start mid-band, which reads as a spurious triangle.
+        eps = 0.01
+        gap_row[header.index("time_ms")] = str(asap_t - eps)
         if "wallclock_ms" in header:
-            gap_row[header.index("wallclock_ms")] = str(0.5 * (loco_wc + asap_wc))
+            gap_row[header.index("wallclock_ms")] = str(asap_wc - eps)
         gap_row[tag_col] = "gap"
         rows.insert(asap_idx, gap_row)
 
@@ -234,16 +241,6 @@ def main():
             asap_mask_local = (tag == "asap")
             in_gap = asap_mask_local & (time_ms >= 0) & (time_ms < init_rl_gap_end_ms)
 
-        # NaN-out the red PD target on asap rows BEFORE the policy is active
-        # (0 -> asap_start_ms). In that window the policy hasn't run yet, so
-        # motor_command.q still holds locomotion's leftover command in loco's
-        # (scrambled) joint order; asap rows aren't remapped to SDK order, so
-        # the logged target is wrong there. Mask it so the red line connects
-        # the last valid loco command to the first real policy command.
-        tgt_premask = None
-        if asap_start_ms is not None:
-            tgt_premask = (tag == "asap") & (time_ms >= 0) & (time_ms < asap_start_ms)
-
         for ax, name in zip(axes, JOINTS_TO_PLOT):
             if name is None:
                 ax.axis("off")
@@ -256,35 +253,65 @@ def main():
             q_deg = np.rad2deg(q_arr).astype(float)
             tgt_deg = np.rad2deg(tgt_arr).astype(float)
 
-            # Mask the artifact-corrupted blue samples across the whole handoff
-            # window (0 -> ASAP active). motor_state.q is read while InitRL is
-            # swapping the model/joint-mapping, so those readings are invalid
-            # (they show physically-impossible jumps). Hide them; blue resumes
-            # once the policy is active and readings are trustworthy again.
-            q_deg_clean = q_deg
-            if tgt_premask is not None and tgt_premask.any():
-                q_deg_clean = q_deg.copy()
-                q_deg_clean[tgt_premask] = np.nan
-            elif has_wallclock and init_rl_gap_end_ms > 0:
-                q_deg_clean = q_deg.copy()
-                q_deg_clean[in_gap] = np.nan
+            # The blue motor_q is logged in the active config's joint order. For
+            # the frame(s) right at the switch -- before GetState refreshes
+            # motor_state.q under the dab mapping -- it carries a stale value in
+            # the WRONG joint order, which shows as a 1-sample spike (the
+            # "triangle") of arbitrary amplitude/direction. A real trajectory is
+            # locally smooth, so a 3-point MEDIAN filter replaces any such
+            # single-sample outlier with a neighbour -- robust to amplitude and
+            # gap timing. Applied only in the transition window so the dab motion
+            # is untouched. First fill the InitRL gap-row NaN to keep continuity.
+            q_deg_clean = q_deg.copy()
+            last = None
+            for k in range(len(q_deg_clean)):
+                if np.isnan(q_deg_clean[k]):
+                    if last is not None and time_ms[k] >= 0:
+                        q_deg_clean[k] = last
+                else:
+                    last = q_deg_clean[k]
+            if has_wallclock:
+                src = q_deg_clean.copy()
+                for k in range(1, len(src) - 1):
+                    if -2.0 <= time_ms[k] <= 20.0:
+                        a, b, c = src[k - 1], src[k], src[k + 1]
+                        if not (np.isnan(a) or np.isnan(b) or np.isnan(c)):
+                            q_deg_clean[k] = sorted([a, b, c])[1]   # median
 
-            # Render the pre-policy handoff target as a continuous HOLD: carry
-            # the last valid pre-switch target across the window instead of the
-            # (unreliable, loco-order) logged values there. Matches the intended
-            # behavior — PD holds the entry pose until the policy first runs.
-            tgt_deg_clean = tgt_deg
-            if tgt_premask is not None and tgt_premask.any():
-                tgt_deg_clean = tgt_deg.copy()
-                pre_idx = np.where((time_ms < 0) & ~np.isnan(tgt_deg))[0]
-                if len(pre_idx):
-                    tgt_deg_clean[tgt_premask] = tgt_deg[pre_idx[-1]]
+            # Red PD target. During the InitRL load gap no command is computed
+            # -- motor_command.q is HELD -- so the inserted "gap" row is NaN and
+            # red would otherwise vanish across the band. Fill that NaN by
+            # holding the last valid target (same treatment as blue) so red is a
+            # continuous horizontal line through the load window, matching the
+            # physically held command. Shown exactly as logged elsewhere.
+            tgt_deg_clean = tgt_deg.copy()
+            last = None
+            for k in range(len(tgt_deg_clean)):
+                if np.isnan(tgt_deg_clean[k]):
+                    if last is not None and time_ms[k] >= 0:
+                        tgt_deg_clean[k] = last
+                else:
+                    last = tgt_deg_clean[k]
+            # The first asap row carries leftover-locomotion bytes re-interpreted
+            # under the new joint mapping -- a single-sample garbage spike (the
+            # "triangle") before the policy actually computes. Same 3-point
+            # median despike as blue removes it while preserving the real
+            # hold->dab step (a step is monotonic, so the median keeps it).
+            if has_wallclock:
+                src = tgt_deg_clean.copy()
+                for k in range(1, len(src) - 1):
+                    if -2.0 <= time_ms[k] <= 20.0:
+                        a, b, c = src[k - 1], src[k], src[k + 1]
+                        if not (np.isnan(a) or np.isnan(b) or np.isnan(c)):
+                            tgt_deg_clean[k] = sorted([a, b, c])[1]   # median
 
-            ax.plot(time_ms, tgt_deg_clean, label="PD target", linewidth=2,
-                    color="tab:red", linestyle="-",
-                    marker="." if xlim is not None else None, markersize=3)
             ax.plot(time_ms, q_deg_clean, label="motor q (actual)", linewidth=1.5,
-                    color="tab:blue",
+                    color="tab:blue", zorder=2,
+                    marker="." if xlim is not None else None, markersize=3)
+            # Red drawn LAST (zorder=3) so the PD target is never hidden under
+            # blue where the motor tracks it closely (locomotion / the hold).
+            ax.plot(time_ms, tgt_deg_clean, label="PD target", linewidth=2,
+                    color="tab:red", linestyle="-", zorder=3,
                     marker="." if xlim is not None else None, markersize=3)
 
             ax.axvline(x=0, color="gray", linestyle=":", alpha=0.7,

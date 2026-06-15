@@ -103,6 +103,12 @@ RL_Sim::RL_Sim(int argc, char **argv)
     this->InitOutputs();
     this->InitControl();
 
+    // Preload all policy models for this robot up front so an FSM switch
+    // (e.g. locomotion -> ASAP dab) activates an in-memory model instead of
+    // reading from disk mid-control. Removes the ~7ms InitRL stall that drifts
+    // the robot during the handoff. Runs before the control/rl loops start.
+    this->PreloadModels(this->robot_name);
+
     // loop
     this->loop_control = std::make_shared<LoopFunc>("loop_control", this->params.Get<float>("dt"), std::bind(&RL_Sim::RobotControl, this));
     this->loop_rl = std::make_shared<LoopFunc>("loop_rl", this->params.Get<float>("dt") * this->params.Get<int>("decimation"), std::bind(&RL_Sim::RunModel, this));
@@ -389,7 +395,18 @@ std::vector<float> RL_Sim::Forward()
     std::vector<float> actions;
     if (this->params.Get<std::vector<int>>("observations_history").size() != 0)
     {
-        this->history_obs_buf.insert(clamped_obs);
+        if (this->history_needs_seed)
+        {
+            // First inference after an FSM switch: fill the entire history with
+            // the current observation so the policy's first action comes from a
+            // full, consistent history (no partial/wrong-order garbage).
+            this->history_obs_buf.reset({0}, clamped_obs);
+            this->history_needs_seed = false;
+        }
+        else
+        {
+            this->history_obs_buf.insert(clamped_obs);
+        }
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
         actions = this->model->forward({this->history_obs});
     }

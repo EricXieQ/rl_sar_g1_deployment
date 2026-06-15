@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="540" viewBox="0 0 980 540" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#188038"/>
+    </marker>
+  </defs>
+  <rect width="980" height="540" fill="#ffffff"/>
+
+  <text x="40" y="40" font-size="22" font-weight="bold" fill="#202124">Why "target &#8722; held" (the gap), not just "target"</text>
+  <text x="40" y="66" font-size="15" fill="#5f6368">You start at held, so &#945; scales the distance you still have to travel, not the whole target.</text>
+
+  <!-- gap bracket -->
+  <line x1="120" y1="150" x2="800" y2="150" stroke="#188038" stroke-width="1.5"/>
+  <line x1="120" y1="146" x2="120" y2="154" stroke="#188038" stroke-width="1.5"/>
+  <line x1="800" y1="146" x2="800" y2="154" stroke="#188038" stroke-width="1.5"/>
+  <text x="460" y="140" font-size="15" font-weight="bold" fill="#188038" text-anchor="middle">gap = target &#8722; held = 60&#176;   (&#945; scales THIS)</text>
+
+  <!-- number line -->
+  <line x1="120" y1="200" x2="800" y2="200" stroke="#5f6368" stroke-width="2"/>
+  <circle cx="120" cy="200" r="6" fill="#9aa0a6"/>
+  <circle cx="460" cy="200" r="6" fill="#188038"/>
+  <circle cx="800" cy="200" r="6" fill="#4285f4"/>
+  <text x="120" y="226" font-size="15" fill="#202124" text-anchor="middle">held = 30&#176;</text>
+  <text x="120" y="244" font-size="12" fill="#5f6368" text-anchor="middle">start (&#945;=0)</text>
+  <text x="460" y="184" font-size="14" font-weight="bold" fill="#188038" text-anchor="middle">&#945;=0.5 &#8594; 60&#176;</text>
+  <text x="460" y="244" font-size="12" fill="#188038" text-anchor="middle">30 + 0.5&#183;60</text>
+  <text x="800" y="226" font-size="15" fill="#202124" text-anchor="middle">target = 90&#176;</text>
+  <text x="800" y="244" font-size="12" fill="#5f6368" text-anchor="middle">end (&#945;=1)</text>
+
+  <!-- mile marker analogy -->
+  <text x="40" y="300" font-size="14" font-style="italic" fill="#5f6368">Like driving mile 30 &#8594; mile 90: the trip is 60 miles (the gap), not 90. Half done = 30 miles travelled = mile 60.</text>
+
+  <!-- RIGHT panel -->
+  <rect x="40" y="324" width="430" height="180" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="2.5"/>
+  <text x="64" y="356" font-size="18" font-weight="bold" fill="#188038">&#10003;  held + &#945;&#183;(target &#8722; held)</text>
+  <text x="64" y="386" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">= 30 + &#945;&#183;60</text>
+  <text x="64" y="424" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945;=0  &#8594; 30&#176;</text>
+  <text x="250" y="424" font-size="15" font-weight="bold" fill="#188038">starts at the robot's pose</text>
+  <text x="64" y="452" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945;=1  &#8594; 90&#176;</text>
+  <text x="250" y="452" font-size="15" fill="#3c4043">ends at target</text>
+  <text x="64" y="486" font-size="15" font-weight="bold" fill="#188038">correct at both ends.</text>
+
+  <!-- WRONG panel -->
+  <rect x="510" y="324" width="430" height="180" rx="10" fill="#fce8e6" stroke="#ea4335" stroke-width="2.5"/>
+  <text x="534" y="356" font-size="18" font-weight="bold" fill="#c5221f">&#10007;  &#945;&#183;target</text>
+  <text x="534" y="386" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">= &#945;&#183;90</text>
+  <text x="534" y="424" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945;=0  &#8594; 0&#176;</text>
+  <text x="720" y="424" font-size="15" font-weight="bold" fill="#c5221f">jumps to ZERO (a jolt!)</text>
+  <text x="534" y="452" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945;=1  &#8594; 90&#176;</text>
+  <text x="720" y="452" font-size="15" fill="#3c4043">ends right, starts wrong</text>
+  <text x="534" y="486" font-size="15" font-weight="bold" fill="#c5221f">ignores where the robot is.</text>
+</svg>

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 900 430" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="16">
+  <rect width="900" height="430" rx="10" fill="#1e1e1e"/>
+
+  <!-- title bar -->
+  <text x="24" y="34" font-size="15" fill="#9aa0a6">rl_sar/library/core/rl_sdk/rl_sdk.cpp  &#183;  PreloadModels()</text>
+  <line x1="0" y1="48" x2="900" y2="48" stroke="#333" stroke-width="1"/>
+
+  <!-- highlight band for the disk->cache line -->
+  <rect x="0" y="260" width="900" height="26" fill="#2d3a2d"/>
+
+  <text xml:space="preserve" fill="#d4d4d4">
+    <tspan x="24" y="84"><tspan fill="#569cd6">void</tspan> RL::<tspan fill="#dcdcaa">PreloadModels</tspan>(robot_name)  <tspan fill="#6a9955">// runs ONCE at startup, robot idle</tspan></tspan>
+    <tspan x="24" y="110">{</tspan>
+    <tspan x="24" y="136">  <tspan fill="#6a9955">// walk every policy folder under  policy/g1/</tspan></tspan>
+    <tspan x="24" y="162">  <tspan fill="#c586c0">for</tspan> (each config.yaml under policy/<tspan fill="#ce9178">"g1"</tspan>/) {</tspan>
+    <tspan x="24" y="194">    model_path = POLICY_DIR + cfg_path + model_name;</tspan>
+    <tspan x="24" y="226">    <tspan fill="#6a9955">// read the .pt file from DISK into a model</tspan></tspan>
+    <tspan x="24" y="252">    <tspan fill="#569cd6">auto</tspan> m = ModelFactory::<tspan fill="#dcdcaa">load_model</tspan>(model_path);</tspan>
+    <tspan x="24" y="284">    preloaded_models_[cfg_path] = m;  <tspan fill="#e5c07b">// DISK &#8594; CACHE</tspan></tspan>
+    <tspan x="24" y="316">  }</tspan>
+    <tspan x="24" y="342">}</tspan>
+  </text>
+
+  <line x1="0" y1="362" x2="900" y2="362" stroke="#333" stroke-width="1"/>
+  <text xml:space="preserve" fill="#d4d4d4">
+    <tspan x="24" y="392">  <tspan fill="#6a9955">// inside load_model(), the real disk read is just libtorch:</tspan></tspan>
+    <tspan x="24" y="416">  model_ = <tspan fill="#dcdcaa">torch::jit::load</tspan>(model_path);</tspan>
+  </text>
+</svg>

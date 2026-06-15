@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="460" viewBox="0 0 920 460" font-family="Helvetica, Arial, sans-serif">
+  <rect width="920" height="460" fill="#ffffff"/>
+
+  <text x="40" y="40" font-size="22" font-weight="bold" fill="#202124">The blend equation, with real numbers</text>
+
+  <text x="40" y="78" font-size="18" fill="#202124" font-family="Menlo, Consolas, monospace">command = (1 &#8722; &#945;)&#183;held + &#945;&#183;target</text>
+  <text x="40" y="104" font-size="15" fill="#5f6368" font-family="Menlo, Consolas, monospace">        = held + &#945;&#183;(target &#8722; held)   (same thing, easier to read)</text>
+
+  <text x="40" y="142" font-size="16" fill="#3c4043">Example: a knee.  <tspan font-weight="bold">held = 30&#176;</tspan>, the policy wants <tspan font-weight="bold">target = 90&#176;</tspan>  (gap = 60&#176;).</text>
+
+  <!-- number line -->
+  <line x1="140" y1="230" x2="760" y2="230" stroke="#5f6368" stroke-width="2"/>
+  <!-- dots -->
+  <circle cx="140" cy="230" r="6" fill="#9aa0a6"/>
+  <circle cx="450" cy="230" r="6" fill="#188038"/>
+  <circle cx="760" cy="230" r="6" fill="#4285f4"/>
+  <!-- alpha labels above -->
+  <text x="140" y="206" font-size="15" font-weight="bold" fill="#5f6368" text-anchor="middle">&#945; = 0</text>
+  <text x="450" y="206" font-size="15" font-weight="bold" fill="#188038" text-anchor="middle">&#945; = 0.5</text>
+  <text x="760" y="206" font-size="15" font-weight="bold" fill="#4285f4" text-anchor="middle">&#945; = 1</text>
+  <!-- value labels below -->
+  <text x="140" y="258" font-size="15" fill="#202124" text-anchor="middle">held = 30&#176;</text>
+  <text x="450" y="258" font-size="15" font-weight="bold" fill="#188038" text-anchor="middle">60&#176;</text>
+  <text x="760" y="258" font-size="15" fill="#202124" text-anchor="middle">target = 90&#176;</text>
+
+  <!-- worked rows -->
+  <text x="40" y="320" font-size="16" font-weight="bold" fill="#202124">Plug in &#945;:</text>
+  <text x="40" y="352" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945; = 0     :  (1)&#183;30 + (0)&#183;90   = 30&#176;   <tspan fill="#5f6368">(stay put)</tspan></text>
+  <text x="40" y="380" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945; = 0.5   :  (0.5)&#183;30 + (0.5)&#183;90 = 60&#176;   <tspan fill="#5f6368">(halfway)</tspan></text>
+  <text x="40" y="408" font-size="16" fill="#3c4043" font-family="Menlo, Consolas, monospace">&#945; = 1     :  (0)&#183;30 + (1)&#183;90   = 90&#176;   <tspan fill="#5f6368">(fully there)</tspan></text>
+
+  <text x="40" y="444" font-size="15" font-style="italic" fill="#5f6368">As &#945; slides 0 &#8594; 1, the command slides 30&#176; &#8594; 90&#176;. That is all the equation does.</text>
+</svg>

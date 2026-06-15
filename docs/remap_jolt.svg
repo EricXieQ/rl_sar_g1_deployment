@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5f6368"/>
+    </marker>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#ea4335"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="630" fill="#ffffff"/>
+
+  <text x="40" y="42" font-size="23" font-weight="bold" fill="#202124">The switch mix-up: real, and fixed</text>
+  <text x="40" y="70" font-size="15" fill="#5f6368">SetCommand:  ctrl[map[i]] = kp[i] &#183; ( q[i] &#8722; actual[map[i]] )</text>
+
+  <!-- PANEL 1: while running -->
+  <rect x="40" y="92" width="545" height="330" rx="12" fill="#e6f4ea" stroke="#34a853" stroke-width="2.5"/>
+  <text x="64" y="126" font-size="19" font-weight="bold" fill="#188038">&#10003; While one policy runs: no mix-up</text>
+  <text x="64" y="160" font-size="15" fill="#3c4043">Target, motor, and sensor all use the same slot + map.</text>
+
+  <rect x="64" y="184" width="200" height="58" rx="8" fill="#ffffff" stroke="#34a853" stroke-width="2"/>
+  <text x="164" y="208" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">q[3] = L_knee target</text>
+  <text x="164" y="229" font-size="13" fill="#5f6368" text-anchor="middle">dab slot 3</text>
+  <line x1="264" y1="213" x2="356" y2="213" stroke="#5f6368" stroke-width="2.5" marker-end="url(#a)"/>
+  <text x="310" y="204" font-size="12" fill="#3c4043" text-anchor="middle">map[3]</text>
+  <rect x="360" y="184" width="200" height="58" rx="8" fill="#ffffff" stroke="#34a853" stroke-width="2"/>
+  <text x="460" y="208" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">drives L_knee motor</text>
+  <text x="460" y="229" font-size="13" fill="#5f6368" text-anchor="middle">+ reads L_knee sensor</text>
+
+  <text x="64" y="288" font-size="16" font-weight="bold" fill="#188038">Each joint gets its own target.</text>
+  <text x="64" y="312" font-size="15" fill="#3c4043">The relabel is internal and consistent, so the robot</text>
+  <text x="64" y="334" font-size="15" fill="#3c4043">never sees a swapped joint.</text>
+
+  <!-- PANEL 2: the bug at switch -->
+  <rect x="615" y="92" width="545" height="330" rx="12" fill="#fce8e6" stroke="#ea4335" stroke-width="2.5"/>
+  <text x="639" y="126" font-size="19" font-weight="bold" fill="#c5221f">&#10007; At the switch, the held buffer WOULD scramble</text>
+  <text x="639" y="160" font-size="15" fill="#3c4043">Command held in the OLD order, but the NEW map is used:</text>
+
+  <rect x="639" y="184" width="210" height="58" rx="8" fill="#ffffff" stroke="#ea4335" stroke-width="2"/>
+  <text x="744" y="208" font-size="15" font-weight="bold" fill="#202124" text-anchor="middle">q[3] = L_hip_r target</text>
+  <text x="744" y="229" font-size="13" fill="#5f6368" text-anchor="middle">held from locomotion</text>
+  <line x1="849" y1="213" x2="941" y2="213" stroke="#ea4335" stroke-width="2.5" marker-end="url(#ar)"/>
+  <text x="895" y="204" font-size="12" fill="#c5221f" text-anchor="middle">dab map[3]</text>
+  <rect x="945" y="184" width="190" height="58" rx="8" fill="#ffffff" stroke="#ea4335" stroke-width="2"/>
+  <text x="1040" y="208" font-size="15" font-weight="bold" fill="#c5221f" text-anchor="middle">lands on L_knee</text>
+  <text x="1040" y="229" font-size="13" fill="#5f6368" text-anchor="middle">WRONG joint</text>
+
+  <text x="639" y="288" font-size="16" font-weight="bold" fill="#c5221f">A hip-roll target would hit the knee.</text>
+  <text x="639" y="312" font-size="15" fill="#3c4043">This was a real ~5 ms transition kick</text>
+  <text x="639" y="334" font-size="15" fill="#3c4043">if left uncorrected.  &#8595; fixed below.</text>
+
+  <!-- FIX band -->
+  <rect x="40" y="442" width="1120" height="158" rx="12" fill="#e6f4ea" stroke="#34a853" stroke-width="2.5"/>
+  <text x="64" y="476" font-size="19" font-weight="bold" fill="#188038">&#10003; FIXED: held-command re-seed in Enter()  (fsm_g1.hpp:608)</text>
+  <text x="64" y="508" font-size="15" fill="#3c4043">Before the dab runs, Enter() re-seeds the held command into SDK/physical order using locomotion's own map:</text>
+  <text x="64" y="538" font-size="16" font-weight="bold" fill="#202124" font-family="Menlo, Consolas, monospace">sdk_pose[ loco_map[slot] ] = q[slot]   &#8594;   motor_command.q = sdk_pose</text>
+  <text x="64" y="568" font-size="15" fill="#3c4043">Now every physical joint holds ITS OWN pre-switch pose, so PD holds the true pose through the load/history</text>
+  <text x="64" y="590" font-size="15" fill="#3c4043">window, with no scramble. (The bigger residual jolt is the dab's pose-mismatch first action, a separate issue.)</text>
+</svg>

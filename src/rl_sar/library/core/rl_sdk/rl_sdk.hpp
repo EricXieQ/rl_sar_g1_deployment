@@ -19,6 +19,7 @@
 #include <deque>
 #include <chrono>
 #include <atomic>
+#include <map>
 
 #include <yaml-cpp/yaml.h>
 #include "fsm.hpp"
@@ -242,6 +243,25 @@ public:
     // history buffer
     ObservationBuffer history_obs_buf;
     std::vector<float> history_obs;
+    // On an FSM switch the history buffer is recreated empty, so the first few
+    // inferences run on a partial/garbage history (in the wrong joint order
+    // mid-swap) -> a bad first action == the handoff jolt. Set true in InitRL;
+    // the first Forward() then seeds the buffer with the current observation
+    // (all history slots) so frame 1 sees a full, consistent history.
+    bool history_needs_seed = false;
+
+    // Entry-only command interpolation. On an FSM switch the policy's first
+    // action is a hard step from the hold pose to the dab's opening pose (the
+    // jolt). When `interpolate_commands: true`, RLControl ramps the command
+    // from the hold pose toward the live policy output over interp_entry_steps
+    // PD ticks -- ONLY for the entry. Once the ramp completes it applies policy
+    // outputs directly, so the dab runs at full crispness afterward.
+    std::vector<float> interp_entry_pose;   // pose to blend FROM (the hold/seed)
+    std::vector<float> interp_q_target;     // latest policy target (updated each pop)
+    std::vector<float> interp_dq_target;
+    int interp_entry_steps = 8;             // entry ramp length in PD ticks
+    int interp_entry_remaining = 0;         // countdown; >0 = entry ramp still active
+    bool interp_entry_captured = false;
 
     // others
     int motiontime = 0;
@@ -260,7 +280,15 @@ public:
     void AttitudeProtect(const std::vector<float> &quaternion, float pitch_threshold, float roll_threshold);
 
     // rl module
-    std::unique_ptr<InferenceRuntime::Model> model;
+    // shared_ptr (not unique) so preloaded policies can be cached in
+    // preloaded_models_ and the active slot can alias the cached one.
+    std::shared_ptr<InferenceRuntime::Model> model;
+    // Preload cache: robot_config_path -> already-loaded model. Filled once at
+    // startup by PreloadModels() so an FSM switch (e.g. loco->dab) does NOT
+    // read the model from disk mid-control (the ~7ms InitRL stall that drifts
+    // the robot during the handoff). InitRL aliases from here when present.
+    std::map<std::string, std::shared_ptr<InferenceRuntime::Model>> preloaded_models_;
+    void PreloadModels(const std::string& robot_name);
     // output buffer
     std::vector<float> output_dof_tau;
     std::vector<float> output_dof_pos;

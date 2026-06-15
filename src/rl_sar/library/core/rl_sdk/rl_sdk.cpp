@@ -4,6 +4,7 @@
  */
 
 #include "rl_sdk.hpp"
+#include <filesystem>
 
 void RL::StateController(const RobotState<float>* state, RobotCommand<float>* command)
 {
@@ -246,14 +247,96 @@ void RL::InitRL(std::string robot_config_path)
     {
         int history_length = *std::max_element(observations_history.begin(), observations_history.end()) + 1;
         this->history_obs_buf = ObservationBuffer(1, this->obs_dims, history_length, this->params.Get<std::string>("observations_history_priority"));
+        // Buffer is empty after recreation -> seed it on the first Forward()
+        // so the policy's first inference uses a full, consistent history
+        // instead of a partial/wrong-order one (the handoff-jolt fix).
+        this->history_needs_seed = true;
     }
 
-    // init model
-    std::string model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("model_name");
-    this->model = InferenceRuntime::ModelFactory::load_model(model_path);
+    // Entry-only command interpolation: ramp the FIRST action over
+    // interp_entry_steps PD ticks (default 2x decimation), then run direct so
+    // the dab is crisp. Arm the countdown only when the config enables it.
+    this->interp_entry_steps = std::max(1, this->params.Get<int>("interp_entry_steps", 2 * std::max(1, this->params.Get<int>("decimation"))));
+    const bool interp_on = this->params.Has("interpolate_commands") && this->params.Get<bool>("interpolate_commands");
+    this->interp_entry_remaining = interp_on ? this->interp_entry_steps : 0;
+    this->interp_entry_captured = false;
+    this->interp_q_target.clear();
+
+    // init model — prefer a preloaded (cached) model so the FSM switch does
+    // NOT read from disk mid-control. Only fall back to a disk load if this
+    // config wasn't preloaded. Timed + logged so the cache-hit (no disk I/O)
+    // vs disk-load path is directly measurable evidence for the preload fix.
+    auto t_model0 = std::chrono::high_resolution_clock::now();
+    bool model_from_cache = false;
+    auto cached = this->preloaded_models_.find(robot_config_path);
+    if (cached != this->preloaded_models_.end() && cached->second)
+    {
+        this->model = cached->second;  // instant alias, no disk I/O
+        model_from_cache = true;
+    }
+    else
+    {
+        std::string model_path = std::string(POLICY_DIR) + "/" + robot_config_path + "/" + this->params.Get<std::string>("model_name");
+        this->model = InferenceRuntime::ModelFactory::load_model(model_path);
+    }
     if (!this->model)
     {
-        throw std::runtime_error("Failed to load model from: " + model_path);
+        throw std::runtime_error("Failed to load model for: " + robot_config_path);
+    }
+    auto t_model1 = std::chrono::high_resolution_clock::now();
+    double model_acquire_ms = std::chrono::duration<double, std::milli>(t_model1 - t_model0).count();
+    std::cout << LOGGER::INFO << "[INITRL] model for " << robot_config_path
+              << (model_from_cache ? " from CACHE (preloaded, no disk I/O)" : " from DISK")
+              << " | acquire = " << model_acquire_ms << " ms" << std::endl;
+}
+
+void RL::PreloadModels(const std::string& robot_name)
+{
+    // Load every policy model under POLICY_DIR/<robot_name>/ into the cache,
+    // once, at startup (off the time-critical path). Keyed by the config path
+    // relative to POLICY_DIR (e.g. "g1/asap_dab") so InitRL can alias it.
+    namespace fs = std::filesystem;
+    // A/B toggle for evidence: RL_DISABLE_PRELOAD=1 skips preloading so the
+    // FSM switch falls back to the disk-load path (InitRL then logs "from DISK
+    // | acquire = ~7 ms"). With preload on, the same switch logs "from CACHE
+    // | acquire = ~0 ms". Running both gives a direct before/after timing.
+    if (const char* dis = std::getenv("RL_DISABLE_PRELOAD"); dis && std::string(dis) != "0")
+    {
+        std::cout << LOGGER::WARNING << "[PRELOAD] disabled via RL_DISABLE_PRELOAD "
+                  << "(FSM switch will load the model from disk)" << std::endl;
+        return;
+    }
+    std::lock_guard<std::mutex> lock(this->model_mutex);
+    const std::string policy_root = std::string(POLICY_DIR);
+    fs::path robot_dir = fs::path(policy_root) / robot_name;
+    if (!fs::exists(robot_dir))
+    {
+        std::cout << LOGGER::WARNING << "[PRELOAD] no policy dir: " << robot_dir << std::endl;
+        return;
+    }
+    for (const auto& entry : fs::recursive_directory_iterator(robot_dir))
+    {
+        if (entry.path().filename() != "config.yaml") continue;
+        const std::string cfg_path = fs::relative(entry.path().parent_path(), policy_root).string();
+        if (this->preloaded_models_.count(cfg_path)) continue;
+        try
+        {
+            YAML::Node node = YAML::LoadFile(entry.path().string())[cfg_path];
+            if (!node || !node["model_name"]) continue;  // fixed-PD states (passive/getup) have no model
+            const std::string model_name = node["model_name"].as<std::string>();
+            const std::string model_path = policy_root + "/" + cfg_path + "/" + model_name;
+            if (!fs::exists(model_path)) continue;
+            std::shared_ptr<InferenceRuntime::Model> m = InferenceRuntime::ModelFactory::load_model(model_path);
+            if (m)
+            {
+                this->preloaded_models_[cfg_path] = m;
+                std::cout << LOGGER::INFO << "[PRELOAD] cached " << cfg_path << " (" << model_name << ")" << std::endl;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            std::cout << LOGGER::WARNING << "[PRELOAD] skipped " << cfg_path << ": " << e.what() << std::endl;
+        }
     }
 }
 
@@ -679,19 +762,56 @@ bool RLFSMState::Interpolate(
 
 void RLFSMState::RLControl()
 {
+    const int ndof = rl.params.Get<int>("num_of_dofs");
+    const bool interp = rl.params.Has("interpolate_commands") && rl.params.Get<bool>("interpolate_commands");
+
     std::vector<float> _output_dof_pos, _output_dof_vel;
-    if (rl.output_dof_pos_queue.try_pop(_output_dof_pos) && rl.output_dof_vel_queue.try_pop(_output_dof_vel))
+    const bool got_new = rl.output_dof_pos_queue.try_pop(_output_dof_pos) && rl.output_dof_vel_queue.try_pop(_output_dof_vel);
+    if (got_new)
     {
-        for (int i = 0; i < rl.params.Get<int>("num_of_dofs"); ++i)
+        rl.interp_q_target = _output_dof_pos;   // latest policy target
+        rl.interp_dq_target = _output_dof_vel;
+    }
+
+    // ENTRY RAMP: only for the first interp_entry_steps PD ticks after a switch,
+    // ramp the command from the hold pose toward the live policy output. This
+    // spreads the first-action step (hold pose -> dab opening pose) over ~tens
+    // of ms instead of one hard tick. interp_q_target keeps updating as new
+    // policy outputs arrive, so we ramp toward the *moving* reference (no phase
+    // catch-up). Once the countdown hits 0 we fall through to direct application
+    // and the dab runs at full crispness.
+    if (interp && rl.interp_entry_remaining > 0 && (int)rl.interp_q_target.size() == ndof)
+    {
+        if (!rl.interp_entry_captured)
         {
-            if (!_output_dof_pos.empty())
-            {
-                fsm_command->motor_command.q[i] = _output_dof_pos[i];
-            }
-            if (!_output_dof_vel.empty())
-            {
-                fsm_command->motor_command.dq[i] = _output_dof_vel[i];
-            }
+            rl.interp_entry_pose.assign(ndof, 0.0f);
+            for (int i = 0; i < ndof; ++i) rl.interp_entry_pose[i] = fsm_command->motor_command.q[i];
+            rl.interp_entry_captured = true;
+        }
+        rl.interp_entry_remaining--;
+        const int total = std::max(1, rl.interp_entry_steps);
+        const float alpha = std::min(1.0f, (float)(total - rl.interp_entry_remaining) / (float)total);
+        const auto kp = rl.params.Get<std::vector<float>>("rl_kp");
+        const auto kd = rl.params.Get<std::vector<float>>("rl_kd");
+        for (int i = 0; i < ndof; ++i)
+        {
+            fsm_command->motor_command.q[i] = (1.0f - alpha) * rl.interp_entry_pose[i] + alpha * rl.interp_q_target[i];
+            fsm_command->motor_command.dq[i] = (i < (int)rl.interp_dq_target.size()) ? rl.interp_dq_target[i] : 0.0f;
+            fsm_command->motor_command.kp[i] = kp[i];
+            fsm_command->motor_command.kd[i] = kd[i];
+            fsm_command->motor_command.tau[i] = 0;
+        }
+        return;
+    }
+
+    // DIRECT: post-entry (or interpolation off) -- apply the latest policy
+    // target directly and hold it until the next one (zero-order hold).
+    if (got_new)
+    {
+        for (int i = 0; i < ndof; ++i)
+        {
+            if (!_output_dof_pos.empty()) fsm_command->motor_command.q[i] = _output_dof_pos[i];
+            if (!_output_dof_vel.empty()) fsm_command->motor_command.dq[i] = _output_dof_vel[i];
             fsm_command->motor_command.kp[i] = rl.params.Get<std::vector<float>>("rl_kp")[i];
             fsm_command->motor_command.kd[i] = rl.params.Get<std::vector<float>>("rl_kd")[i];
             fsm_command->motor_command.tau[i] = 0;

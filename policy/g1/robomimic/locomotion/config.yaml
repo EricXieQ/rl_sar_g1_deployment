@@ -117,3 +117,12 @@ g1/robomimic/locomotion:
                             19, 26,
                             20, 27,
                             21, 28]
+
+  # Entry-only command interpolation (same mechanism as the dab). Smooths the
+  # first-action step when entering locomotion from another policy -- notably
+  # the dab->locomotion EXIT, where the robot is in the dab's final pose and
+  # locomotion's first command would otherwise step hard back to standing.
+  # Ramps the command from the hold pose toward the live policy output over
+  # interp_entry_steps PD ticks, then applies policy outputs directly.
+  interpolate_commands: true
+  interp_entry_steps: 8

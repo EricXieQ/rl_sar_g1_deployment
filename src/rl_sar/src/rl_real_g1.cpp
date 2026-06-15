@@ -45,6 +45,13 @@ RL_Real::RL_Real(int argc, char **argv)
     this->InitJointNum(this->params.Get<int>("num_of_dofs"));
     this->InitOutputs();
     this->InitControl();
+
+    // Preload all g1 policy models up front so an FSM switch activates an
+    // in-memory model instead of reading from disk mid-control. On hardware
+    // this is even more important: a blocking disk load in the control path
+    // would starve the motors for tens of ms during the handoff.
+    this->PreloadModels(this->robot_name);
+
     // init MotionSwitcherClient
     this->msc.SetTimeout(5.0f);
     this->msc.Init();
@@ -265,7 +272,18 @@ std::vector<float> RL_Real::Forward()
     std::vector<float> actions;
     if (!this->params.Get<std::vector<int>>("observations_history").empty())
     {
-        this->history_obs_buf.insert(clamped_obs);
+        if (this->history_needs_seed)
+        {
+            // First inference after an FSM switch: fill the entire history with
+            // the current observation so the policy's first action comes from a
+            // full, consistent history (no partial/wrong-order garbage).
+            this->history_obs_buf.reset({0}, clamped_obs);
+            this->history_needs_seed = false;
+        }
+        else
+        {
+            this->history_obs_buf.insert(clamped_obs);
+        }
         this->history_obs = this->history_obs_buf.get_obs_vec(this->params.Get<std::vector<int>>("observations_history"));
         actions = this->model->forward({this->history_obs});
     }
