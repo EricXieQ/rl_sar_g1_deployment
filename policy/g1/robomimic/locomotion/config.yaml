@@ -125,4 +125,4 @@ g1/robomimic/locomotion:
   # Ramps the command from the hold pose toward the live policy output over
   # interp_entry_steps PD ticks, then applies policy outputs directly.
   interpolate_commands: true
-  interp_entry_steps: 8
+  interp_entry_steps: 20  # softer return ramp (8->16->20); ~100ms at 200Hz

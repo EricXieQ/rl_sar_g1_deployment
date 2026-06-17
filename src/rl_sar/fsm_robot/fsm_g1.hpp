@@ -136,6 +136,22 @@ RLFSMStateRLRoboMimicLocomotion(RL *rl) : RLFSMState(*rl, "RLFSMStateRLRoboMimic
         percent_transition = 0.0f;
         rl.episode_length_buf = 0;
 
+        // HANDOFF RE-SEED (mirror of the dab's "JOLT FIX"): capture the robot's
+        // current pose BEFORE InitRL swaps the joint_mapping. motor_state.q is in
+        // the OUTGOING policy's order (e.g. the dab's identity map); convert it to
+        // physical SDK order via that map. After InitRL we convert SDK -> this
+        // policy's order, so the entry-interp ramp holds the TRUE pose instead of
+        // a scrambled leftover command (joints getting each other's targets).
+        int ndof_entry = rl.params.Get<int>("num_of_dofs");
+        std::vector<int> prev_mapping = rl.params.Get<std::vector<int>>("joint_mapping");
+        std::vector<float> sdk_hold(ndof_entry, 0.0f);
+        for (int slot = 0; slot < ndof_entry && slot < (int)prev_mapping.size(); ++slot)
+        {
+            int sdk_idx = prev_mapping[slot];
+            if (sdk_idx >= 0 && sdk_idx < ndof_entry)
+                sdk_hold[sdk_idx] = fsm_state->motor_state.q[slot];
+        }
+
         // read params from yaml
         rl.config_name = "robomimic/locomotion";
         std::string robot_config_path = rl.robot_name + "/" + rl.config_name;
@@ -143,6 +159,16 @@ RLFSMStateRLRoboMimicLocomotion(RL *rl) : RLFSMState(*rl, "RLFSMStateRLRoboMimic
         {
             rl.InitRL(robot_config_path);
             rl.now_state = *fsm_state;
+
+            // SDK order -> locomotion policy order, then seed the held command so
+            // the entry ramp starts from the correct pose (no joint scramble).
+            std::vector<int> loco_mapping = rl.params.Get<std::vector<int>>("joint_mapping");
+            for (int slot = 0; slot < ndof_entry && slot < (int)loco_mapping.size(); ++slot)
+            {
+                int sdk_idx = loco_mapping[slot];
+                if (sdk_idx >= 0 && sdk_idx < ndof_entry)
+                    fsm_command->motor_command.q[slot] = sdk_hold[sdk_idx];
+            }
         }
         catch (const std::exception& e)
         {
