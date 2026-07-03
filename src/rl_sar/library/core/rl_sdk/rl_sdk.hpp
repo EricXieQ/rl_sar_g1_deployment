@@ -208,7 +208,8 @@ public:
     bool rl_init_done = false;
 
     std::atomic<int> action_scale_percent{60};
-    std::atomic<int> rl_kp_percent{60};
+    std::atomic<int> rl_kp_percent{100};  // single gain knob: scales BOTH rl_kp and rl_kd together
+    std::atomic<bool> safeguard_trip_{false};  // set on RL loop when a policy output diverges; consumed by StateController to bail to Passive
     std::vector<float> tuning_baseline_action_scale;
     std::vector<float> tuning_baseline_rl_kp;
     void LoadTuningBaseline(const std::string& file_path, const std::string& file_name);

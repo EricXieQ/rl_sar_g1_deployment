@@ -21,6 +21,16 @@ void RL::StateController(const RobotState<float>* state, RobotCommand<float>* co
         updateState(pair.second);
     }
 
+    // DIVERGENCE SAFEGUARD: the RL loop sets safeguard_trip_ when a policy output
+    // runs away (e.g. a joint winding up against an external constraint). Consume
+    // it here on the FSM thread and bail to Passive damping (one-shot, so the
+    // operator can re-engage a policy afterward without a restart).
+    if (this->safeguard_trip_.exchange(false))
+    {
+        std::cout << std::endl << LOGGER::WARNING << "[SAFEGUARD] policy output diverged -> bailing to Passive (damping)" << std::endl;
+        this->fsm.RequestStateChange("RLFSMStatePassive");
+    }
+
     fsm.Run();
 
     this->motiontime++;
@@ -505,8 +515,8 @@ void RL::KeyboardInterface()
         {
         case '+': case '=': scale("action_scale", this->action_scale_percent, +1, this->tuning_baseline_action_scale); return;
         case '-': case '_': scale("action_scale", this->action_scale_percent, -1, this->tuning_baseline_action_scale); return;
-        case ']':           scale("rl_kp",        this->rl_kp_percent,        +1, this->tuning_baseline_rl_kp);        return;
-        case '[':           scale("rl_kp",        this->rl_kp_percent,        -1, this->tuning_baseline_rl_kp);        return;
+        case ']':           scale("kp+kd gain",   this->rl_kp_percent,        +1, this->tuning_baseline_rl_kp);        return;
+        case '[':           scale("kp+kd gain",   this->rl_kp_percent,        -1, this->tuning_baseline_rl_kp);        return;
         case '0': this->control.SetKeyboard(Input::Keyboard::Num0); break;
         case '1': this->control.SetKeyboard(Input::Keyboard::Num1); break;
         case '2': this->control.SetKeyboard(Input::Keyboard::Num2); break;
@@ -793,12 +803,13 @@ void RLFSMState::RLControl()
         const float alpha = std::min(1.0f, (float)(total - rl.interp_entry_remaining) / (float)total);
         const auto kp = rl.params.Get<std::vector<float>>("rl_kp");
         const auto kd = rl.params.Get<std::vector<float>>("rl_kd");
+        const float gain_frac = rl.rl_kp_percent.load() / 100.0f;  // single knob scales kp AND kd
         for (int i = 0; i < ndof; ++i)
         {
             fsm_command->motor_command.q[i] = (1.0f - alpha) * rl.interp_entry_pose[i] + alpha * rl.interp_q_target[i];
             fsm_command->motor_command.dq[i] = (i < (int)rl.interp_dq_target.size()) ? rl.interp_dq_target[i] : 0.0f;
-            fsm_command->motor_command.kp[i] = kp[i];
-            fsm_command->motor_command.kd[i] = kd[i];
+            fsm_command->motor_command.kp[i] = kp[i] * gain_frac;
+            fsm_command->motor_command.kd[i] = kd[i] * gain_frac;
             fsm_command->motor_command.tau[i] = 0;
         }
         return;
@@ -808,12 +819,15 @@ void RLFSMState::RLControl()
     // target directly and hold it until the next one (zero-order hold).
     if (got_new)
     {
+        const auto rl_kp = rl.params.Get<std::vector<float>>("rl_kp");
+        const auto rl_kd = rl.params.Get<std::vector<float>>("rl_kd");
+        const float gain_frac = rl.rl_kp_percent.load() / 100.0f;  // single knob scales kp AND kd
         for (int i = 0; i < ndof; ++i)
         {
             if (!_output_dof_pos.empty()) fsm_command->motor_command.q[i] = _output_dof_pos[i];
             if (!_output_dof_vel.empty()) fsm_command->motor_command.dq[i] = _output_dof_vel[i];
-            fsm_command->motor_command.kp[i] = rl.params.Get<std::vector<float>>("rl_kp")[i];
-            fsm_command->motor_command.kd[i] = rl.params.Get<std::vector<float>>("rl_kd")[i];
+            fsm_command->motor_command.kp[i] = rl_kp[i] * gain_frac;
+            fsm_command->motor_command.kd[i] = rl_kd[i] * gain_frac;
             fsm_command->motor_command.tau[i] = 0;
         }
     }

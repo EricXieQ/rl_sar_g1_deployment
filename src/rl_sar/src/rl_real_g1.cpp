@@ -212,6 +212,71 @@ void RL_Real::RobotControl()
     this->SetCommand(&this->robot_command);
 }
 
+void RL_Real::RecordRollout()
+{
+    // ASAP delta-model rollout logger. Enable with RL_RECORD=1. One row per
+    // policy step: raw action + full proprio/IMU state + applied target + tau.
+    // Dual timestamps (t_mono steady, t_wall unix epoch) so the stream can be
+    // synced offline to the Vicon mocap capture. Streaming ofstream (OS-buffered,
+    // same low-overhead pattern as the dab diag CSV); survives Ctrl+C.
+    if (!this->record_checked_)
+    {
+        this->record_checked_ = true;
+        const char* env = std::getenv("RL_RECORD");
+        this->record_enabled_ = (env && std::string(env) != "0");
+        if (this->record_enabled_)
+        {
+            std::string dir = std::string(POLICY_DIR) + "/../logs";
+            try { std::filesystem::create_directories(dir); } catch (...) {}
+            std::time_t tt = std::time(nullptr);
+            std::stringstream ss;
+            ss << dir << "/rollout_" << std::put_time(std::localtime(&tt), "%Y%m%d_%H%M%S") << ".csv";
+            this->record_file_.open(ss.str());
+            this->record_file_ << std::fixed << std::setprecision(6);
+            this->record_t0_ = std::chrono::steady_clock::now();
+            std::cout << LOGGER::INFO << "[RECORD] rollout -> " << ss.str() << std::endl;
+        }
+    }
+    if (!this->record_enabled_ || !this->record_file_.is_open()) return;
+
+    const int ndof = this->params.Get<int>("num_of_dofs");
+    const int nact = (int)this->obs.actions.size();
+    std::ofstream& f = this->record_file_;
+
+    if (!this->record_header_)
+    {
+        this->record_header_ = true;
+        f << "t_mono,t_wall,step,state,episode_time";
+        for (int i = 0; i < nact; ++i) f << ",action_" << i;
+        for (int i = 0; i < ndof; ++i) f << ",dof_pos_" << i;
+        for (int i = 0; i < ndof; ++i) f << ",dof_vel_" << i;
+        for (int i = 0; i < 4; ++i)    f << ",base_quat_" << i;   // w,x,y,z
+        for (int i = 0; i < 3; ++i)    f << ",ang_vel_" << i;     // IMU gyro
+        for (int i = 0; i < 3; ++i)    f << ",lin_acc_" << i;     // IMU accel
+        for (int i = 0; i < ndof; ++i) f << ",target_dof_pos_" << i;
+        for (int i = 0; i < ndof; ++i) f << ",tau_est_" << i;
+        f << "\n";
+    }
+
+    const double t_mono = std::chrono::duration<double>(std::chrono::steady_clock::now() - this->record_t0_).count();
+    const double t_wall = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const float dt = this->params.Get<float>("dt");
+    const int decim = this->params.Get<int>("decimation");
+    const double ep_time = (double)this->episode_length_buf * dt * decim;
+
+    f << t_mono << "," << t_wall << "," << this->record_step_++ << "," << this->config_name << "," << ep_time;
+    auto dump = [&](const std::vector<float>& v, int n) { for (int i = 0; i < n; ++i) f << "," << (i < (int)v.size() ? v[i] : 0.0f); };
+    dump(this->obs.actions, nact);
+    dump(this->obs.dof_pos, ndof);
+    dump(this->obs.dof_vel, ndof);
+    dump(this->obs.base_quat, 4);
+    dump(this->obs.ang_vel, 3);
+    dump(this->robot_state.imu.accelerometer, 3);
+    dump(this->output_dof_pos, ndof);
+    dump(this->robot_state.motor_state.tau_est, ndof);
+    f << "\n";
+}
+
 void RL_Real::RunModel()
 {
     if (this->rl_init_done)
@@ -232,6 +297,24 @@ void RL_Real::RunModel()
 
         this->obs.actions = this->Forward();
         this->ComputeOutput(this->obs.actions, this->output_dof_pos, this->output_dof_vel, this->output_dof_tau);
+
+        this->RecordRollout();  // ASAP delta-model data (no-op unless RL_RECORD=1)
+
+        // DIVERGENCE SAFEGUARD: if a policy output runs away (e.g. a joint winding
+        // up against an external constraint like a crane), don't queue the huge
+        // target -- flag it so StateController bails to Passive on the FSM thread.
+        // Threshold is per-policy (config `action_guard`, default 3.0; raw action
+        // magnitude, normal is < ~1.5). The diverged step is still logged above.
+        {
+            const float action_guard = this->params.Get<float>("action_guard", 3.0f);
+            float action_max = 0.0f;
+            for (float a : this->obs.actions) { float m = std::fabs(a); if (m > action_max) action_max = m; }
+            if (action_max > action_guard)
+            {
+                this->safeguard_trip_.store(true);
+                return;  // skip queueing the diverged target this tick
+            }
+        }
 
         if (!this->output_dof_pos.empty())
         {

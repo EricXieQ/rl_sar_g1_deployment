@@ -27,6 +27,13 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <ctime>
+#include <cstdlib>
+#include <filesystem>
 
 #if defined(USE_ROS1) && defined(USE_ROS)
 #include <ros/ros.h>
@@ -260,6 +267,16 @@ private:
     // others
     std::vector<float> mapped_joint_positions;
     std::vector<float> mapped_joint_velocities;
+
+    // ASAP delta-model rollout recorder (enable with env RL_RECORD=1). Logs one
+    // row per policy step for offline delta-action-model training + Vicon sync.
+    void RecordRollout();
+    std::ofstream record_file_;
+    bool record_checked_ = false;
+    bool record_enabled_ = false;
+    bool record_header_ = false;
+    long record_step_ = 0;
+    std::chrono::steady_clock::time_point record_t0_;
 
 #if defined(USE_ROS1) && defined(USE_ROS)
     geometry_msgs::Twist cmd_vel;
