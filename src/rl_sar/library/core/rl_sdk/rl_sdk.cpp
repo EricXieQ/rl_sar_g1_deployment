@@ -533,7 +533,13 @@ void RL::KeyboardInterface()
         case 'd': case 'D': this->control.SetKeyboard(Input::Keyboard::D); break;
         case 'e': case 'E': this->control.SetKeyboard(Input::Keyboard::E); break;
         case 'f': case 'F': this->control.SetKeyboard(Input::Keyboard::F); break;
-        case 'g': case 'G': this->control.SetKeyboard(Input::Keyboard::G); break;
+        case 'g': case 'G':
+        {
+            const bool en = !this->safeguard_enabled_.load();
+            this->safeguard_enabled_.store(en);
+            std::cout << std::endl << LOGGER::WARNING << "[SAFEGUARD] divergence guard " << (en ? "ENABLED" : "DISABLED") << std::endl;
+            return;
+        }
         case 'h': case 'H': this->control.SetKeyboard(Input::Keyboard::H); break;
         case 'i': case 'I': this->control.SetKeyboard(Input::Keyboard::I); break;
         case 'j': case 'J': this->control.SetKeyboard(Input::Keyboard::J); break;

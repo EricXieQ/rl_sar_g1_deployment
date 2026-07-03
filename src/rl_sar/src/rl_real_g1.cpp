@@ -305,6 +305,8 @@ void RL_Real::RunModel()
         // target -- flag it so StateController bails to Passive on the FSM thread.
         // Threshold is per-policy (config `action_guard`, default 3.0; raw action
         // magnitude, normal is < ~1.5). The diverged step is still logged above.
+        // Runtime-toggleable with key 'G' (safeguard_enabled_).
+        if (this->safeguard_enabled_.load())
         {
             const float action_guard = this->params.Get<float>("action_guard", 3.0f);
             float action_max = 0.0f;
