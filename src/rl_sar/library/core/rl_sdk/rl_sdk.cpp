@@ -540,6 +540,12 @@ void RL::KeyboardInterface()
             std::cout << std::endl << LOGGER::WARNING << "[SAFEGUARD] divergence guard " << (en ? "ENABLED" : "DISABLED") << std::endl;
             return;
         }
+        case '.':  // Vicon sync mark: flag the next rollout row as a sync anchor (press while delivering the stomp/tap)
+        {
+            this->sync_mark_request_.store(true);
+            std::cout << std::endl << LOGGER::NOTE << "[SYNC] mark requested -> next rollout row flagged (deliver the stomp now)" << std::endl;
+            return;
+        }
         case 'h': case 'H': this->control.SetKeyboard(Input::Keyboard::H); break;
         case 'i': case 'I': this->control.SetKeyboard(Input::Keyboard::I); break;
         case 'j': case 'J': this->control.SetKeyboard(Input::Keyboard::J); break;

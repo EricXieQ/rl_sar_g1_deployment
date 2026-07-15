@@ -28,13 +28,18 @@ g1/asap_dab:
 
   # Action clipping is symmetric. The wrapper outputs zero on wrist joints
   # so they will be inside any reasonable bound, but keep it tight anyway.
+  # STOPGAP (2026-07-14): R_AnkleRoll (idx 11) is an under-constrained "don't-care"
+  # action dim the dab over-commands to ~100deg (ref wants 0/flat); on real hardware
+  # it slams the ~15deg limit -> 30Nm -> firmware power-cut. Clamp idx 11 to +-0.2
+  # (~+-3deg target) so the foot stays ~flat, no trip, no right lean. Left ankle roll
+  # (idx 5) left untouched (it behaves). Remove once the fine-tuned checkpoint lands.
   clip_actions_lower: [-100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
-                       -100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
+                       -100.0, -100.0, -100.0, -100.0, -100.0, -0.2,
                        -100.0, -100.0, -100.0,
                        -100.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
                        -100.0, -100.0, -100.0, -100.0, -100.0, -100.0, -100.0]
   clip_actions_upper: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
-                       100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
+                       100.0, 100.0, 100.0, 100.0, 100.0, 0.2,
                        100.0, 100.0, 100.0,
                        100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0,
                        100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]

@@ -168,6 +168,7 @@ void RL_Real::GetState(RobotState<float> *state)
     for (int i = 0; i < 3; ++i)
     {
         state->imu.gyroscope[i] = this->unitree_low_state.imu_state().gyroscope()[i];
+        state->imu.accelerometer[i] = this->unitree_low_state.imu_state().accelerometer()[i];
     }
     for (int i = 0; i < this->params.Get<int>("num_of_dofs"); ++i)
     {
@@ -246,7 +247,7 @@ void RL_Real::RecordRollout()
     if (!this->record_header_)
     {
         this->record_header_ = true;
-        f << "t_mono,t_wall,step,state,episode_time";
+        f << "t_mono,t_wall,step,state,episode_time,sync_mark";
         for (int i = 0; i < nact; ++i) f << ",action_" << i;
         for (int i = 0; i < ndof; ++i) f << ",dof_pos_" << i;
         for (int i = 0; i < ndof; ++i) f << ",dof_vel_" << i;
@@ -264,7 +265,8 @@ void RL_Real::RecordRollout()
     const int decim = this->params.Get<int>("decimation");
     const double ep_time = (double)this->episode_length_buf * dt * decim;
 
-    f << t_mono << "," << t_wall << "," << this->record_step_++ << "," << this->config_name << "," << ep_time;
+    const int sync_mark = this->sync_mark_request_.exchange(false) ? 1 : 0;  // one-shot flag set by key '.'
+    f << t_mono << "," << t_wall << "," << this->record_step_++ << "," << this->config_name << "," << ep_time << "," << sync_mark;
     auto dump = [&](const std::vector<float>& v, int n) { for (int i = 0; i < n; ++i) f << "," << (i < (int)v.size() ? v[i] : 0.0f); };
     dump(this->obs.actions, nact);
     dump(this->obs.dof_pos, ndof);
