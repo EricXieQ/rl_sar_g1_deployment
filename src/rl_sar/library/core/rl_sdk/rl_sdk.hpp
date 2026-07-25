@@ -207,7 +207,7 @@ public:
     RobotState<float> now_state;
     bool rl_init_done = false;
 
-    std::atomic<int> action_scale_percent{60};
+    std::atomic<int> action_scale_percent{100};  // start at trained FULL scale; ASAP/robomimic policies are trained at 100% and degrade badly at 60% (roll/yaw wobble). Turn down at runtime with '-' if a policy needs a gentler start.
     std::atomic<int> rl_kp_percent{100};  // single gain knob: scales BOTH rl_kp and rl_kd together
     std::atomic<bool> safeguard_trip_{false};  // set on RL loop when a policy output diverges; consumed by StateController to bail to Passive
     std::atomic<bool> safeguard_enabled_{true};  // runtime toggle (key 'G'); when false the divergence guard is off
