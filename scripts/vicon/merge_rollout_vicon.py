@@ -194,6 +194,13 @@ def main():
                     help="+/- seconds around sync_mark to search (if marks present)")
     ap.add_argument("--manual-offset", type=float, default=None,
                     help="skip cross-correlation; add this many seconds to Vicon clock")
+    # Quality floor. The rigid-fit residual (rms_mm, written by osc_listener.py) says
+    # how well the markers still formed a rigid body that frame. The distribution is
+    # bimodal -- the bulk sits below ~5mm and a small tail jumps to ~30mm. Dropping the
+    # tail BEFORE interpolation means the pose is interpolated across a bad frame
+    # instead of being contaminated by it.
+    ap.add_argument("--max-rms", type=float, default=None,
+                    help="drop Vicon frames whose rms_mm exceeds this (mm)")
     args = ap.parse_args()
 
     rh, rr = load_csv(args.rollout)
@@ -213,6 +220,14 @@ def main():
         sys.exit("ERROR: Vicon object '%s' not found. Available: %s"
                  % (target, ", ".join(names)))
     print("[merge] using Vicon object '%s' (%d samples)" % (target, sel.sum()))
+
+    if args.max_rms is not None and "rms_mm" in vh:
+        rms = col(vh, vr, "rms_mm")
+        keep = (rms <= args.max_rms)
+        dropped = int((~keep & sel).sum())
+        sel = sel & keep
+        print("[merge] rms filter <= %.1f mm: dropped %d frames (%.2f%%)"
+              % (args.max_rms, dropped, 100.0 * dropped / max(1, len(rms))))
 
     t_vic = col(vh, vr, "t_wall")[sel]
     pos_v = np.stack([col(vh, vr, "x")[sel], col(vh, vr, "y")[sel],
