@@ -107,11 +107,22 @@ def main():
                     help="keep absolute world pose (default re-references each rep "
                          "to its own start position and heading, which is what makes "
                          "the two sessions' 26.5 deg yaw calibration gap irrelevant)")
-    ap.add_argument("--z-offset", type=float, default=0.0,
-                    help="added to root z. The Vicon origin is the marker cluster, "
-                         "NOT the URDF pelvis origin, and that translation was never "
-                         "calibrated -- only rotation was. See the note printed below.")
+    ap.add_argument("--marker-offset", default="0,0,-0.083",
+                    help="offset from the URDF pelvis origin to the Vicon marker-cluster "
+                         "centroid, expressed in the PELVIS BODY frame, as x,y,z metres. "
+                         "Applied as pos_pelvis = pos_vicon - R @ d, so pelvis tilt no "
+                         "longer swings the reported position. Default z=-0.083 was "
+                         "derived by FK: pelvis height above the foot contact spheres "
+                         "from the recorded joint angles, minus the Vicon height, over "
+                         "600 standing-hold frames per session -- the two sessions agree "
+                         "to 1mm. x and y are NOT identifiable from that fit (only the z "
+                         "equation is available and R[2,:] barely varies while upright), "
+                         "so they default to 0; pitch/roll the pelvis +-20deg while "
+                         "planted during a calibration take to make them observable. "
+                         "Pass 0,0,0 to disable.")
     args = ap.parse_args()
+    d_off = np.array([float(v) for v in args.marker_offset.split(",")], dtype=np.float64)
+    assert d_off.shape == (3,), "--marker-offset wants x,y,z"
 
     df = pd.read_csv(args.inp)
     # Per-rep dt, so the gaps between reps don't skew the median.
@@ -140,17 +151,27 @@ def main():
                 "base_quat_urdf_y", "base_quat_urdf_z"]].to_numpy(np.float64)
 
         Rs = np.stack([q_to_R(q) for q in qw])
+
+        # Marker-cluster centroid -> URDF pelvis origin. This must happen BEFORE
+        # re-referencing, and it must go through R: the offset is fixed in the body
+        # frame, so an 83mm lever arm swings the centroid ~15mm at 10 deg of pelvis
+        # tilt -- motion the pelvis origin never underwent. A scalar z shift cannot
+        # represent that.
+        if np.any(d_off):
+            pos = pos - np.einsum("tij,j->ti", Rs, d_off)
+
         if not args.no_reref:
             # Rotate the whole rep so it starts facing +x at the origin. Removes
             # the per-session yaw calibration (which drifts 26.5 deg between
-            # sessions and 5.7 deg within one) from the data entirely.
+            # sessions and 5.7 deg within one) from the data entirely. rz() leaves
+            # z untouched, so height survives; only x,y are zeroed.
             yaw0 = np.arctan2(Rs[0][1, 0], Rs[0][0, 0])
             Ry = rz(-yaw0)
+            z0 = pos[0, 2]
             Rs = Ry @ Rs
             pos = (Ry @ (pos - pos[0]).T).T
-            pos[:, 2] += float(g["base_pos_z"].iloc[0])   # keep true height, not 0
+            pos[:, 2] += z0                     # restore true (offset-corrected) height
 
-        pos[:, 2] += args.z_offset
         root_rot = np.stack([R_to_q_xyzw(R) for R in Rs])
 
         dof = g[[f"dof_pos_{i}" for i in CSV_DOF_IDX]].to_numpy(np.float64)
@@ -180,11 +201,18 @@ def main():
     print(f"  motions: {len(out)}   fps: {fps}   frames: {sum(len(v['dof']) for v in out.values())}")
     print(f"  self-check pose_aa.sum(-1)[1:24] == dof : max err {err:.3e}")
     print(f"  re-reference: {'OFF (absolute world)' if args.no_reref else 'ON (per-rep origin + heading)'}")
-    if args.z_offset == 0.0:
-        print("  NOTE: root z is the Vicon marker-cluster centroid, not the URDF pelvis")
-        print("        origin. Only rotation was ever calibrated, so a constant height")
-        print("        offset remains. Estimate it from a static stance and pass --z-offset,")
-        print("        or the delta model will try to explain a measurement offset as dynamics.")
+    if np.any(d_off):
+        print(f"  marker->pelvis offset applied (body frame): "
+              f"[{d_off[0]:+.4f}, {d_off[1]:+.4f}, {d_off[2]:+.4f}] m")
+        if d_off[0] == 0.0 and d_off[1] == 0.0:
+            print("        x,y are 0 because the FK fit cannot identify them while the robot")
+            print("        is upright. Cross-check d_z against a tape measure from the marker")
+            print("        plate to the pelvis origin -- a systematic disagreement means the")
+            print("        hoist harness was carrying weight when the estimate was taken.")
+    else:
+        print("  WARNING: no marker->pelvis offset. root z is the marker-cluster centroid,")
+        print("        ~83mm below the URDF pelvis origin. The delta model will try to")
+        print("        explain that measurement offset as dynamics.")
 
 
 if __name__ == "__main__":
