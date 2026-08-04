@@ -239,9 +239,23 @@ def main():
                 cur = [marks[n] for n in common]
                 cc = centroid(cur)
                 P = [ref[n] for n in common]
+                # `ref` is centred on ALL reference markers, so a SUBSET of it does
+                # not have zero mean -- but Q below is centred on the subset that is
+                # actually visible. Kabsch assumes both clouds share an origin, so
+                # feeding it that mismatch biases the rotation AND leaves the reported
+                # position on the subset centroid, which sits |m|/3 ~= 29mm away from
+                # the body origin when one of four markers drops out. Re-centre the
+                # reference subset, then map the centroid back through the rotation.
+                # Costs nothing on full frames (p0 == 0) and takes the fit residual on
+                # 3-marker frames from ~29mm to ~1.7mm.
+                p0 = centroid(P)
+                P = [[P[k][i] - p0[i] for i in range(3)] for k in range(len(common))]
                 Q = [[cur[k][i] - cc[i] for i in range(3)] for k in range(len(common))]
                 q = quat_norm(kabsch(P, Q))
                 R = quat_to_R(q)
+                # body origin = subset centroid displaced back by the rotated offset
+                rp0 = rot_apply(R, p0)
+                org = [cc[i] - rp0[i] for i in range(3)]
                 # fit residual (mm) -- how rigid the cluster looked this frame
                 err = 0.0
                 for k, n in enumerate(common):
@@ -249,7 +263,7 @@ def main():
                     err += sum((pr[i] - Q[k][i]) ** 2 for i in range(3))
                 rms = math.sqrt(err / len(common)) * 1000.0
                 pw.writerow(["%.6f" % t_wall, frame, subject or "pelvis",
-                             "%.6f" % cc[0], "%.6f" % cc[1], "%.6f" % cc[2],
+                             "%.6f" % org[0], "%.6f" % org[1], "%.6f" % org[2],
                              "%.6f" % q[0], "%.6f" % q[1], "%.6f" % q[2], "%.6f" % q[3],
                              len(common), "%.2f" % rms])
                 posed += 1
