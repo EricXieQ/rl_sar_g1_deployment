@@ -10,6 +10,7 @@
 #include "rl_sdk.hpp"
 #include <fstream>
 #include <chrono>
+#include <cstdlib>   // getenv, for the RL_DAB_POLICY override below
 
 namespace g1_fsm
 {
@@ -562,7 +563,20 @@ public:
         wallclock_anchor_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
 
-        rl.config_name = "asap_dab";
+        // Which dab policy to load, so alternatives can be A/B'd against the
+        // validated one without a rebuild or overwriting policy/g1/asap_dab.
+        // Defaults to the known-good v6 grounded policy.
+        //   RL_DAB_POLICY=asap_dab_ft ./run_g1.sh   # delta-corrected fine-tune
+        {
+            const char* dab_override = std::getenv("RL_DAB_POLICY");
+            rl.config_name = (dab_override && *dab_override) ? dab_override : "asap_dab";
+            if (dab_override && *dab_override)
+            {
+                std::cout << std::endl << LOGGER::WARNING
+                          << "[DAB] policy overridden by RL_DAB_POLICY -> "
+                          << rl.config_name << std::endl;
+            }
+        }
         std::string robot_config_path = rl.robot_name + "/" + rl.config_name;
         try
         {

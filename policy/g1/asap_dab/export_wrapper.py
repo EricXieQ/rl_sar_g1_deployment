@@ -150,19 +150,32 @@ class RlSarASAPWrapper(nn.Module):
         return out
 
 
+# v6 "grounded" model_20000 -- the VALIDATED real-robot dab policy (2026-07-18).
+# Inherits v4's ankle command-over-limit fix and v5's spine sigma tightening, and
+# adds v6's grounded entry (init_noise 0.25, no drop/tilt spawn), which removed the
+# left-leg entry stomp on hardware. Run at 100% action scale on deploy.
+#
+# This used to be hardcoded to the v3 off-trajectory checkpoint, which meant
+# re-running the script silently regenerated v3 over a shipped v6 policy.pt.
+# Lineage kept for reference:
+#   v3 off-traj finetune: 20260504_015435-...offtraj_finetune_v3/model_25600.pt
+#   v4 ankle+yaw:         20260716_131145-DabTracking_ankleyaw_v4/model_41600.pt
+DEFAULT_CKPT = (
+    "/home/eric/Project/humanoid/ASAP/logs/DabTracking/"
+    "20260718_015831-DabTracking_grounded_v6-motion_tracking-"
+    "g1_29dof_anneal_23dof/model_20000.pt"
+)
+DEFAULT_OUT = "/home/eric/Project/humanoid/rl_sar/policy/g1/asap_dab/policy.pt"
+
+
 def main():
-    # Off-trajectory entry fine-tuned checkpoint (resumed from the original
-    # model_93600 with off_trajectory_entry_fraction=0.2). This is the version
-    # that handles the loco-stance entry without the first-tick jolt/fall.
-    # Original pre-fine-tune was: 20260328_172005-...wall_domainrand.../model_93600.pt
-    ckpt_path = (
-        "/home/eric/Project/humanoid/ASAP/logs/DabTracking/"
-        "20260504_015435-DabTracking_wall_offtraj_finetune_v3-motion_tracking-"
-        "g1_29dof_anneal_23dof/model_25600.pt"
-    )
-    out_path = (
-        "/home/eric/Project/humanoid/rl_sar/policy/g1/asap_dab/policy.pt"
-    )
+    import argparse
+    p = argparse.ArgumentParser(
+        description="Export an ASAP dab checkpoint into rl_sar's TorchScript policy.pt.")
+    p.add_argument("--ckpt", default=DEFAULT_CKPT, help="ASAP checkpoint .pt to export")
+    p.add_argument("--out", default=DEFAULT_OUT, help="output TorchScript policy.pt")
+    args = p.parse_args()
+    ckpt_path, out_path = args.ckpt, args.out
 
     print(f"Loading ASAP actor from {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
